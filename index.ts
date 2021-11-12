@@ -1,1 +1,1 @@
-export { YourWebComponent } from './src/your-webcomponent';
+export { InfiniteScroller } from './src/infinite-scroller';
