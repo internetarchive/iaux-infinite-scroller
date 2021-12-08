@@ -15,15 +15,18 @@ export class AppRoot
 {
   @query('infinite-scroller') infiniteScroller!: InfiniteScroller;
 
-  private tileDesign: string = '1';
+  private tileDesign: '1' | '2' = '1';
 
-  private showTile(design: string) {
+  private showTile(design: '1' | '2') {
     this.tileDesign = design;
     this.infiniteScroller.reload();
   }
 
+  private scrollThresholdReached() {
+    this.infiniteScroller.itemCount += 50;
+  }
+
   cellForIndex(index: number): TemplateResult {
-    console.debug('cellForIndex', index);
     if (this.tileDesign === '1') {
       return html`<tile-1>${index}</tile-1>`;
     }
@@ -47,7 +50,11 @@ export class AppRoot
         Tile 2
       </button>
 
-      <infinite-scroller .itemCount=${100} .cellProvider=${this}>
+      <infinite-scroller
+        .itemCount=${100}
+        .cellProvider=${this}
+        @scrollThresholdReached=${this.scrollThresholdReached}
+      >
       </infinite-scroller>
     `;
   }
