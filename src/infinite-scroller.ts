@@ -16,6 +16,28 @@ export interface InfiniteScrollerCellProviderInterface {
   cellForIndex(index: number): TemplateResult;
 }
 
+export interface InfiniteScrollerInterface extends LitElement {
+  /**
+   * The number of items in the data source
+   */
+  itemCount: number;
+
+  /**
+   * The cell provider to provide cells for the scroller
+   */
+  cellProvider?: InfiniteScrollerCellProviderInterface;
+
+  /**
+   * Disable scroll optimizations for prerendering
+   */
+  scrollOptimizationsDisabled: boolean;
+
+  /**
+   * Reload the scroller
+   */
+  reload(): void;
+}
+
 /**
  * When the user clicks on a cell, we emit selection details
  * including the index that was selected and the original event.
@@ -28,7 +50,10 @@ export type CellSelectionDetails = {
 };
 
 @customElement('infinite-scroller')
-export class InfiniteScroller extends LitElement {
+export class InfiniteScroller
+  extends LitElement
+  implements InfiniteScrollerInterface
+{
   @property({ type: Number }) itemCount = 0;
 
   @property({ type: Object })

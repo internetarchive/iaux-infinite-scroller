@@ -1,1 +1,5 @@
-export { InfiniteScroller } from './src/infinite-scroller';
+export {
+  InfiniteScroller,
+  InfiniteScrollerCellProviderInterface,
+  InfiniteScrollerInterface,
+} from './src/infinite-scroller';
