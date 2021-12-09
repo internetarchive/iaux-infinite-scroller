@@ -1,9 +1,9 @@
 {
-  "name": "@internetarchive/your-webcomponent",
-  "description": "The Internet Archive Typescript WebComponent template. It is based on the @open-wc template.",
+  "name": "@internetarchive/infinite-scroller",
+  "description": "An infinite scroller web component.",
   "license": "AGPL-3.0-only",
   "author": "Internet Archive",
-  "version": "0.0.0",
+  "version": "0.0.1-alpha.1",
   "main": "dist/index.js",
   "module": "dist/index.js",
   "scripts": {
