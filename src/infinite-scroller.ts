@@ -77,7 +77,7 @@ export class InfiniteScroller
    * @type {HTMLDivElement}
    * @memberof InfiniteScroller
    */
-  @query('#sentinel') private sentinel!: HTMLDivElement;
+  @query('#sentinel') private sentinel?: HTMLDivElement;
 
   @queryAll('.cell-container') private cellContainers!: HTMLDivElement[];
 
@@ -158,7 +158,10 @@ export class InfiniteScroller
     });
 
     // observe the sentinel
-    this.intersectionObserver.observe(this.sentinel);
+    // the sentinel is an optional because `reload()` can be called before
+    // the DOM is ready so it may not be in the DOM yet
+    // subsequent calls to `reload()` will re-observe the sentinel
+    if (this.sentinel) this.intersectionObserver.observe(this.sentinel);
 
     // if scroll optimizations are disabled, just add all of the datasource
     // indices to the visibleCells and process them immediately,
