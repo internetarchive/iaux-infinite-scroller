@@ -15,11 +15,15 @@ export class Tile2 extends LitElement {
       :host {
         display: block;
         height: 100%;
-        outline: 1px solid blue;
+        outline: 1px solid #fad9bd;
+      }
+
+      ::slotted(*) {
+        color: #fad9bd;
       }
 
       h1 {
-        color: blue;
+        color: #fad9bd;
       }
     `;
   }
