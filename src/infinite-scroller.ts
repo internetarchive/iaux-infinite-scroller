@@ -296,6 +296,7 @@ export class InfiniteScroller
     const cellGapSizeCss = css`var(--infiniteScrollerCellGap, 1.7rem)`;
     const cellMinWidth = css`var(--infiniteScrollerCellMinWidth, 16rem)`;
     const cellMinHeight = css`var(--infiniteScrollerCellMinHeight, 22.5rem)`;
+    const cellOutline = css`var(--infiniteScrollerCellOutline, 0)`;
 
     return css`
       #container {
@@ -310,6 +311,7 @@ export class InfiniteScroller
       .cell-container {
         min-height: ${cellMinHeight};
         min-width: ${cellMinWidth};
+        outline: ${cellOutline};
       }
 
       #sentinel {
