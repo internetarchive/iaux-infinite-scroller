@@ -86,6 +86,8 @@ export class InfiniteScroller
   reload() {
     const range = generateRange(0, Math.max(0, this.itemCount - 1), 1);
     range.forEach(index => this.removeCell(index));
+    this.renderedCells.clear();
+    this.visibleCells.clear();
     this.setupIntersectionObserver();
   }
 
