@@ -1,3 +1,4 @@
+/* eslint-disable no-continue */
 import {
   LitElement,
   html,
@@ -13,7 +14,7 @@ import { repeat } from 'lit/directives/repeat.js';
 import { generateRange } from './range-generator';
 
 export interface InfiniteScrollerCellProviderInterface {
-  cellForIndex(index: number): TemplateResult;
+  cellForIndex(index: number): Promise<TemplateResult | undefined>;
 }
 
 export interface InfiniteScrollerInterface extends LitElement {
@@ -83,20 +84,22 @@ export class InfiniteScroller
 
   private intersectionObserver?: IntersectionObserver;
 
-  reload() {
+  async reload() {
     const range = generateRange(0, Math.max(0, this.itemCount - 1), 1);
     range.forEach(index => this.removeCell(index));
     this.renderedCells.clear();
     this.visibleCells.clear();
-    this.setupIntersectionObserver();
+    await this.setupIntersectionObserver();
   }
 
-  updated(changed: PropertyValues) {
+  async updated(changed: PropertyValues) {
     if (
       changed.has('itemCount') ||
       changed.has('scrollOptimizationsDisabled')
     ) {
-      this.setupIntersectionObserver();
+      console.debug('updated, before setupIntersectionObserver');
+      await this.setupIntersectionObserver();
+      console.debug('updated, after setupIntersectionObserver');
     }
   }
 
@@ -126,9 +129,9 @@ export class InfiniteScroller
    * @private
    * @memberof InfiniteScroller
    */
-  private setupIntersectionObserver() {
+  private async setupIntersectionObserver() {
     this.intersectionObserver?.disconnect();
-    this.intersectionObserver = new IntersectionObserver(entries => {
+    this.intersectionObserver = new IntersectionObserver(async entries => {
       entries.forEach(entry => {
         // If we've reached the sentinel, emit a `scrollThresholdReached` event
         // and move on to the next entry. This is when the consumer should start
@@ -153,9 +156,11 @@ export class InfiniteScroller
         }
       });
 
+      console.debug('setupIntersectionObserver', this.visibleCells);
+
       // we only need to process visible cells if scroll optimizations are enabled
       if (!this.scrollOptimizationsDisabled) {
-        this.processVisibleCells();
+        await this.processVisibleCells();
       }
     });
 
@@ -172,7 +177,7 @@ export class InfiniteScroller
     if (this.scrollOptimizationsDisabled) {
       const indexArray = generateRange(0, Math.max(0, this.itemCount - 1), 1);
       indexArray.forEach(index => this.visibleCells.add(index));
-      this.processVisibleCells();
+      await this.processVisibleCells();
     } else {
       // if scroll optimizations are enabled, observe all of the cell containers
       this.cellContainers.forEach(cell =>
@@ -225,7 +230,7 @@ export class InfiniteScroller
    * @returns
    * @memberof InfiniteScroller
    */
-  private processVisibleCells() {
+  private async processVisibleCells() {
     const visibleCellArray = Array.from(this.visibleCells);
     const cellBufferSize = Math.max(10, visibleCellArray.length);
     const sortedVisibleRange = visibleCellArray.sort((a, b) =>
@@ -243,7 +248,7 @@ export class InfiniteScroller
           this.itemCount - 1
         );
     const bufferRange = generateRange(minIndex, maxIndex, 1);
-    this.renderCellBuffer(bufferRange);
+    await this.renderCellBuffer(bufferRange);
     this.removeCellsOutsideBufferRange(bufferRange);
   }
 
@@ -254,17 +259,34 @@ export class InfiniteScroller
    * @param {number[]} bufferRange
    * @memberof InfiniteScroller
    */
-  private renderCellBuffer(bufferRange: number[]) {
-    bufferRange.forEach(index => {
-      if (this.renderedCells.has(index)) return;
-      const cellContainer = this.shadowRoot?.querySelector(
-        `.cell-container[data-cell-index="${index}"]`
-      ) as HTMLDivElement;
-      if (!cellContainer) return;
-      const template = this.cellProvider?.cellForIndex(index);
-      render(template, cellContainer);
-      this.renderedCells.add(index);
-    });
+  private async renderCellBuffer(bufferRange: number[]) {
+    console.debug('renderCellBuffer', bufferRange);
+    const renderPromises: Promise<void>[] = [];
+    for (const index of bufferRange) {
+      const promise = this.renderCell(index);
+      renderPromises.push(promise);
+    }
+    console.debug('renderPromises', renderPromises.length);
+    await Promise.all(renderPromises);
+  }
+
+  private async renderCell(index: number) {
+    console.debug(
+      'this.renderedCells.has(index)',
+      index,
+      this.renderedCells.has(index)
+    );
+    if (this.renderedCells.has(index)) return;
+    const cellContainer = this.shadowRoot?.querySelector(
+      `.cell-container[data-cell-index="${index}"]`
+    ) as HTMLDivElement;
+    if (!cellContainer) return;
+    console.debug('before cellforindex', index);
+    const template = await this.cellProvider?.cellForIndex(index);
+    console.debug('after cellforindex', index, template);
+    if (!template) return;
+    render(template, cellContainer);
+    this.renderedCells.add(index);
   }
 
   /**

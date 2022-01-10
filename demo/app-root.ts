@@ -8,6 +8,10 @@ import type {
   InfiniteScrollerCellProviderInterface,
 } from '../src/infinite-scroller';
 
+export function promisedSleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 @customElement('app-root')
 export class AppRoot
   extends LitElement
@@ -26,11 +30,12 @@ export class AppRoot
     this.infiniteScroller.itemCount += 50;
   }
 
-  cellForIndex(index: number): TemplateResult {
+  async cellForIndex(index: number): Promise<TemplateResult | undefined> {
+    await promisedSleep(Math.random() * 2000);
     if (this.tileDesign === '1') {
-      return html`<tile-1>${index}</tile-1>`;
+      return html`<tile-1><p>${index}</p></tile-1>`;
     }
-    return html`<tile-2>${index}</tile-2>`;
+    return html`<tile-2><p>${index}</p></tile-2>`;
   }
 
   render() {
@@ -66,6 +71,10 @@ export class AppRoot
 
     .cell {
       outline: 1px solid green;
+    }
+
+    infinite-scroller {
+      --infiniteScrollerCellOutline: 1px solid green;
     }
   `;
 }
