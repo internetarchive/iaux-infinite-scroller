@@ -13,7 +13,7 @@ import { repeat } from 'lit/directives/repeat.js';
 import { generateRange } from './range-generator';
 
 export interface InfiniteScrollerCellProviderInterface {
-  cellForIndex(index: number): TemplateResult;
+  cellForIndex(index: number): TemplateResult | undefined;
 }
 
 export interface InfiniteScrollerInterface extends LitElement {
@@ -262,6 +262,7 @@ export class InfiniteScroller
       ) as HTMLDivElement;
       if (!cellContainer) return;
       const template = this.cellProvider?.cellForIndex(index);
+      if (!template) return;
       render(template, cellContainer);
       this.renderedCells.add(index);
     });

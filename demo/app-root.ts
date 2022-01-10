@@ -26,7 +26,7 @@ export class AppRoot
     this.infiniteScroller.itemCount += 50;
   }
 
-  cellForIndex(index: number): TemplateResult {
+  cellForIndex(index: number): TemplateResult | undefined {
     if (this.tileDesign === '1') {
       return html`<tile-1>${index}</tile-1>`;
     }
