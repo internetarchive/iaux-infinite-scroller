@@ -36,6 +36,15 @@ export interface InfiniteScrollerInterface extends LitElement {
    * Reload the scroller
    */
   reload(): void;
+
+  /**
+   * Scroll to a cell index
+   *
+   * @param index number
+   * @param animated boolean
+   * @returns boolean if scroll was successful
+   */
+  scrollToCell(index: number, animated: boolean): boolean;
 }
 
 /**
@@ -89,6 +98,14 @@ export class InfiniteScroller
     this.renderedCells.clear();
     this.visibleCells.clear();
     this.setupIntersectionObserver();
+  }
+
+  scrollToCell(index: number, animated: boolean): boolean {
+    const cellContainer = this.cellContainers[index];
+    if (!cellContainer) return false;
+    const behavior = animated ? 'smooth' : 'auto';
+    cellContainer.scrollIntoView({ behavior });
+    return true;
   }
 
   updated(changed: PropertyValues) {

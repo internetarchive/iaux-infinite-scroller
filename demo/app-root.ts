@@ -15,6 +15,10 @@ export class AppRoot
 {
   @query('infinite-scroller') infiniteScroller!: InfiniteScroller;
 
+  @query('#scrollToCellIndex') scrollToInput!: HTMLInputElement;
+
+  @query('#animatedCheckbox') animatedCheckbox!: HTMLInputElement;
+
   private tileDesign: '1' | '2' = '1';
 
   private showTile(design: '1' | '2') {
@@ -26,6 +30,15 @@ export class AppRoot
     this.infiniteScroller.itemCount += 50;
   }
 
+  private scrollToCell(e: Event) {
+    e.preventDefault();
+    const index = parseInt(this.scrollToInput.value, 10);
+    const animated = this.animatedCheckbox.checked;
+    if (index >= 0) {
+      this.infiniteScroller.scrollToCell(index, animated);
+    }
+  }
+
   cellForIndex(index: number): TemplateResult | undefined {
     if (this.tileDesign === '1') {
       return html`<tile-1>${index}</tile-1>`;
@@ -35,20 +48,34 @@ export class AppRoot
 
   render() {
     return html`
-      <button
-        @click=${() => {
-          this.showTile('1');
-        }}
-      >
-        Tile 1
-      </button>
-      <button
-        @click=${() => {
-          this.showTile('2');
-        }}
-      >
-        Tile 2
-      </button>
+      <div id="dev-tools">
+        <div>
+          Tile Style:
+          <button
+            @click=${() => {
+              this.showTile('1');
+            }}
+          >
+            Tile 1
+          </button>
+          <button
+            @click=${() => {
+              this.showTile('2');
+            }}
+          >
+            Tile 2
+          </button>
+        </div>
+        <div>
+          <form @submit=${this.scrollToCell}>
+            Scroll to cell index:
+            <input type="number" id="scrollToCellIndex" /> Animated:
+            <input type="checkbox" id="animatedCheckbox" checked />
+            <input type="submit" value="Scroll" /> (animation does not work in
+            Safari)
+          </form>
+        </div>
+      </div>
 
       <infinite-scroller
         .itemCount=${100}
@@ -62,10 +89,16 @@ export class AppRoot
   static styles = css`
     :host {
       display: block;
+      color: white;
+      font-size: 1.6rem;
     }
 
     .cell {
       outline: 1px solid green;
+    }
+
+    #scrollToCellIndex {
+      width: 50px;
     }
   `;
 }
