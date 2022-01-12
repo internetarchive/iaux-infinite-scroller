@@ -45,6 +45,11 @@ export interface InfiniteScrollerInterface extends LitElement {
    * @returns boolean if scroll was successful
    */
   scrollToCell(index: number, animated: boolean): boolean;
+
+  /**
+   * Get the indices of the cells that are currently visible
+   */
+  getVisibleCellIndices(): number[];
 }
 
 /**
@@ -92,6 +97,7 @@ export class InfiniteScroller
 
   private intersectionObserver?: IntersectionObserver;
 
+  /** @inheritdoc */
   reload() {
     const range = generateRange(0, Math.max(0, this.itemCount - 1), 1);
     range.forEach(index => this.removeCell(index));
@@ -100,12 +106,18 @@ export class InfiniteScroller
     this.setupIntersectionObserver();
   }
 
+  /** @inheritdoc */
   scrollToCell(index: number, animated: boolean): boolean {
     const cellContainer = this.cellContainers[index];
     if (!cellContainer) return false;
     const behavior = animated ? 'smooth' : 'auto';
     cellContainer.scrollIntoView({ behavior });
     return true;
+  }
+
+  /** @inheritdoc */
+  getVisibleCellIndices(): number[] {
+    return Array.from(this.visibleCells);
   }
 
   updated(changed: PropertyValues) {
