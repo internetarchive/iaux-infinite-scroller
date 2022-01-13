@@ -73,6 +73,8 @@ export class InfiniteScroller
   @property({ type: Object })
   cellProvider?: InfiniteScrollerCellProviderInterface;
 
+  @property({ type: Object }) placeholderCell?: TemplateResult;
+
   /**
    * Disable scroll optimizations, such as lazy loading of cells
    * and removal when they're not on-screen.
@@ -291,9 +293,12 @@ export class InfiniteScroller
       ) as HTMLDivElement;
       if (!cellContainer) return;
       const template = this.cellProvider?.cellForIndex(index);
-      if (!template) return;
-      render(template, cellContainer);
-      this.renderedCells.add(index);
+      if (template) {
+        render(template, cellContainer);
+        this.renderedCells.add(index);
+      } else {
+        render(this.placeholderCell, cellContainer);
+      }
     });
   }
 
