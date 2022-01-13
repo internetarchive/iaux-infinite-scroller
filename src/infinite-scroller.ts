@@ -73,7 +73,7 @@ export class InfiniteScroller
   @property({ type: Object })
   cellProvider?: InfiniteScrollerCellProviderInterface;
 
-  @property({ type: Object }) placeholderCell?: TemplateResult;
+  @property({ type: Object }) placeholderCellTemplate?: TemplateResult;
 
   /**
    * Disable scroll optimizations, such as lazy loading of cells
@@ -103,8 +103,8 @@ export class InfiniteScroller
   reload() {
     const range = generateRange(0, Math.max(0, this.itemCount - 1), 1);
     range.forEach(index => this.removeCell(index));
-    this.renderedCells.clear();
-    this.visibleCells.clear();
+    this.renderedCellIndices.clear();
+    this.visibleCellIndices.clear();
     this.setupIntersectionObserver();
   }
 
@@ -119,7 +119,7 @@ export class InfiniteScroller
 
   /** @inheritdoc */
   getVisibleCellIndices(): number[] {
-    return Array.from(this.visibleCells);
+    return Array.from(this.visibleCellIndices);
   }
 
   updated(changed: PropertyValues) {
@@ -141,7 +141,7 @@ export class InfiniteScroller
    * @private
    * @memberof InfiniteScroller
    */
-  private renderedCells = new Set<number>();
+  private renderedCellIndices = new Set<number>();
 
   /**
    * The indices of cells that are visible
@@ -149,7 +149,15 @@ export class InfiniteScroller
    * @private
    * @memberof InfiniteScroller
    */
-  private visibleCells = new Set<number>();
+  private visibleCellIndices = new Set<number>();
+
+  /**
+   * The indices of cells that have placeholders in them
+   *
+   * @private
+   * @memberof InfiniteScroller
+   */
+  private placeholderCellIndices = new Set<number>();
 
   /**
    * Add observations for all of the things that need observing
@@ -178,9 +186,9 @@ export class InfiniteScroller
         if (!indexString) return;
         const index = parseInt(indexString, 10);
         if (entry.isIntersecting) {
-          this.visibleCells.add(index);
+          this.visibleCellIndices.add(index);
         } else {
-          this.visibleCells.delete(index);
+          this.visibleCellIndices.delete(index);
         }
       });
 
@@ -202,7 +210,7 @@ export class InfiniteScroller
     // the scrolling experience
     if (this.scrollOptimizationsDisabled) {
       const indexArray = generateRange(0, Math.max(0, this.itemCount - 1), 1);
-      indexArray.forEach(index => this.visibleCells.add(index));
+      indexArray.forEach(index => this.visibleCellIndices.add(index));
       this.processVisibleCells();
     } else {
       // if scroll optimizations are enabled, observe all of the cell containers
@@ -257,7 +265,7 @@ export class InfiniteScroller
    * @memberof InfiniteScroller
    */
   private processVisibleCells() {
-    const visibleCellArray = Array.from(this.visibleCells);
+    const visibleCellArray = Array.from(this.visibleCellIndices);
     const cellBufferSize = Math.max(10, visibleCellArray.length);
     const sortedVisibleRange = visibleCellArray.sort((a, b) =>
       a > b ? 1 : -1
@@ -287,7 +295,7 @@ export class InfiniteScroller
    */
   private renderCellBuffer(bufferRange: number[]) {
     bufferRange.forEach(index => {
-      if (this.renderedCells.has(index)) return;
+      if (this.renderedCellIndices.has(index)) return;
       const cellContainer = this.shadowRoot?.querySelector(
         `.cell-container[data-cell-index="${index}"]`
       ) as HTMLDivElement;
@@ -295,9 +303,12 @@ export class InfiniteScroller
       const template = this.cellProvider?.cellForIndex(index);
       if (template) {
         render(template, cellContainer);
-        this.renderedCells.add(index);
+        this.renderedCellIndices.add(index);
+        this.placeholderCellIndices.delete(index);
       } else {
-        render(this.placeholderCell, cellContainer);
+        if (this.placeholderCellIndices.has(index)) return;
+        render(this.placeholderCellTemplate, cellContainer);
+        this.placeholderCellIndices.add(index);
       }
     });
   }
@@ -311,7 +322,7 @@ export class InfiniteScroller
    */
   private removeCellsOutsideBufferRange(bufferRange: number[]) {
     // get the rendered cells outside of the buffer range so we can remove them
-    const renderedUnbufferedCells = Array.from(this.renderedCells).filter(
+    const renderedUnbufferedCells = Array.from(this.renderedCellIndices).filter(
       index => !bufferRange.includes(index)
     );
     renderedUnbufferedCells.forEach(index => {
@@ -325,7 +336,7 @@ export class InfiniteScroller
     ) as HTMLDivElement;
     if (!cellContainer) return;
     render(nothing, cellContainer);
-    this.renderedCells.delete(index);
+    this.renderedCellIndices.delete(index);
   }
 
   static get styles(): CSSResultGroup {
