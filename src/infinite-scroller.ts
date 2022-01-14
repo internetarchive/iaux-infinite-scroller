@@ -105,6 +105,7 @@ export class InfiniteScroller
     range.forEach(index => this.removeCell(index));
     this.renderedCellIndices.clear();
     this.visibleCellIndices.clear();
+    this.placeholderCellIndices.clear();
     this.setupObservations();
   }
 
