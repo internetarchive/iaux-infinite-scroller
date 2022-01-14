@@ -75,6 +75,10 @@ export class InfiniteScroller
 
   @property({ type: Object }) placeholderCellTemplate?: TemplateResult;
 
+  @property({ type: Number }) pageSize: number = 10; // Infinity;
+
+  @property({ type: Boolean }) showPageSeparator = false;
+
   /**
    * Disable scroll optimizations, such as lazy loading of cells
    * and removal when they're not on-screen.
@@ -270,14 +274,25 @@ export class InfiniteScroller
         ${repeat(
           indexArray,
           index => index,
-          index => html`
-            <div
-              class="cell-container"
-              data-cell-index=${index}
-              @click=${(e: Event) => this.cellSelected(e, index)}
-              @keyup=${(e: Event) => this.cellSelected(e, index)}
-            ></div>
-          `
+          index => {
+            const isFirstForPage = index % this.pageSize === 0;
+            const pageNumber = Math.floor(index / this.pageSize) + 1;
+            return html`
+              ${isFirstForPage
+                ? html`<div
+                    class="page-separator"
+                    data-page-number=${pageNumber}
+                  ></div>`
+                : nothing}
+              <div
+                class="cell-container"
+                data-cell-index=${index}
+                data-cell-page=${pageNumber}
+                @click=${(e: Event) => this.cellSelected(e, index)}
+                @keyup=${(e: Event) => this.cellSelected(e, index)}
+              ></div>
+            `;
+          }
         )}
       </div>
     `;
@@ -349,11 +364,14 @@ export class InfiniteScroller
       ) as HTMLDivElement;
       if (!cellContainer) return;
       const template = this.cellProvider?.cellForIndex(index);
+
+      // if a cell template is provided, use it, otherwise use the placeholderCellTemplate
       if (template) {
         render(template, cellContainer);
         this.renderedCellIndices.add(index);
         this.placeholderCellIndices.delete(index);
       } else {
+        // don't re-render the placeholder if it's already in the cellContainer
         if (this.placeholderCellIndices.has(index)) return;
         render(this.placeholderCellTemplate, cellContainer);
         this.placeholderCellIndices.add(index);
@@ -408,6 +426,11 @@ export class InfiniteScroller
         min-height: ${cellMinHeight};
         min-width: ${cellMinWidth};
         outline: ${cellOutline};
+      }
+
+      .page-separator {
+        position: absolute;
+        outline: 1px solid red;
       }
 
       #sentinel {
