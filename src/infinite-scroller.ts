@@ -325,6 +325,13 @@ export class InfiniteScroller
     const bufferRange = generateRange(minIndex, maxIndex, 1);
     this.renderCellBuffer(bufferRange);
     this.removeCellsOutsideBufferRange(bufferRange);
+
+    const visibleCellsChangedEvent = new CustomEvent('visibleCellsChanged', {
+      detail: {
+        visibleCellIndices: visibleCellArray,
+      },
+    });
+    this.dispatchEvent(visibleCellsChangedEvent);
   }
 
   /**
