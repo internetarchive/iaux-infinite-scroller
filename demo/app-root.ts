@@ -71,8 +71,7 @@ export class AppRoot
             Scroll to cell index:
             <input type="number" id="scrollToCellIndex" /> Animated:
             <input type="checkbox" id="animatedCheckbox" checked />
-            <input type="submit" value="Scroll" /> (animation does not work in
-            Safari)
+            <input type="submit" value="Scroll" />
           </form>
         </div>
       </div>
@@ -81,6 +80,9 @@ export class AppRoot
         .itemCount=${100}
         .cellProvider=${this}
         @scrollThresholdReached=${this.scrollThresholdReached}
+        @cellWidthChanged=${(e: CustomEvent<{ width: number }>) => {
+          console.debug('cellWidthChanged', e.detail.width);
+        }}
       >
       </infinite-scroller>
     `;
