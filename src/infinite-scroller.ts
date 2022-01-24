@@ -390,8 +390,10 @@ export class InfiniteScroller
   static get styles(): CSSResultGroup {
     const sentinelHeightCss = css`var(--infiniteScrollerSentinelDistanceFromEnd, 200rem)`;
     const cellGapSizeCss = css`var(--infiniteScrollerCellGap, 1.7rem)`;
-    const cellMinWidth = css`var(--infiniteScrollerCellMinWidth, 16rem)`;
-    const cellMinHeight = css`var(--infiniteScrollerCellMinHeight, 22.5rem)`;
+    const cellMinWidth = css`var(--infiniteScrollerCellMinWidth, 10rem)`;
+    const cellMaxWidth = css`var(--infiniteScrollerCellMaxWidth, 1fr)`;
+    const cellMinHeight = css`var(--infiniteScrollerCellMinHeight, 10rem)`;
+    const cellMaxHeight = css`var(--infiniteScrollerCellMaxHeight, unset)`;
     const cellOutline = css`var(--infiniteScrollerCellOutline, 0)`;
 
     return css`
@@ -399,15 +401,18 @@ export class InfiniteScroller
         position: relative;
         display: grid;
         gap: ${cellGapSizeCss};
-        grid-template-columns: repeat(auto-fit, minmax(${cellMinWidth}, 1fr));
+        grid-template-columns: repeat(
+          auto-fit,
+          minmax(${cellMinWidth}, ${cellMaxWidth})
+        );
         padding: 1rem;
         margin: auto;
       }
 
       .cell-container {
-        min-height: ${cellMinHeight};
-        min-width: ${cellMinWidth};
         outline: ${cellOutline};
+        min-height: ${cellMinHeight};
+        max-height: ${cellMaxHeight};
       }
 
       #sentinel {
