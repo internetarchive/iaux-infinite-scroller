@@ -399,20 +399,30 @@ export class InfiniteScroller
     return css`
       #container {
         position: relative;
-        display: grid;
+        display: flex;
+        flex-wrap: wrap;
         gap: ${cellGapSizeCss};
-        grid-template-columns: repeat(
-          auto-fit,
-          minmax(${cellMinWidth}, ${cellMaxWidth})
-        );
         padding: 1rem;
         margin: auto;
+      }
+
+      @supports (display: grid) {
+        #container {
+          display: grid;
+          flex-wrap: unset;
+          grid-template-columns: repeat(
+            auto-fit,
+            minmax(${cellMinWidth}, ${cellMaxWidth})
+          );
+        }
       }
 
       .cell-container {
         outline: ${cellOutline};
         min-height: ${cellMinHeight};
         max-height: ${cellMaxHeight};
+        min-width: ${cellMinWidth};
+        max-width: ${cellMaxWidth};
       }
 
       #sentinel {
