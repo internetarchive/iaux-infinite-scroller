@@ -425,6 +425,14 @@ export class InfiniteScroller
         max-width: ${cellMaxWidth};
       }
 
+      @supports (display: grid) {
+        /* the grid takes care of the width */
+        .cell-container {
+          min-width: unset;
+          max-width: unset;
+        }
+      }
+
       #sentinel {
         position: absolute;
         height: ${sentinelHeightCss};
