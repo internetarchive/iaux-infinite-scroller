@@ -411,7 +411,7 @@ export class InfiniteScroller
           display: grid;
           flex-wrap: unset;
           grid-template-columns: repeat(
-            auto-fit,
+            auto-fill,
             minmax(${cellMinWidth}, ${cellMaxWidth})
           );
         }
