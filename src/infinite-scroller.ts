@@ -389,7 +389,8 @@ export class InfiniteScroller
 
   static get styles(): CSSResultGroup {
     const sentinelHeightCss = css`var(--infiniteScrollerSentinelDistanceFromEnd, 200rem)`;
-    const cellGapSizeCss = css`var(--infiniteScrollerCellGap, 1.7rem)`;
+    const rowGapSizeCss = css`var(--infiniteScrollerRowGap, 1.7rem)`;
+    const colGapSizeCss = css`var(--infiniteScrollerColGap, 1.7rem)`;
     const cellMinWidth = css`var(--infiniteScrollerCellMinWidth, 10rem)`;
     const cellMaxWidth = css`var(--infiniteScrollerCellMaxWidth, 1fr)`;
     const cellMinHeight = css`var(--infiniteScrollerCellMinHeight, 10rem)`;
@@ -401,7 +402,10 @@ export class InfiniteScroller
         position: relative;
         display: flex;
         flex-wrap: wrap;
-        gap: ${cellGapSizeCss};
+        grid-row-gap: ${rowGapSizeCss};
+        row-gap: ${rowGapSizeCss};
+        grid-column-gap: ${colGapSizeCss};
+        column-gap: ${colGapSizeCss};
         padding: 1rem;
         margin: auto;
       }
