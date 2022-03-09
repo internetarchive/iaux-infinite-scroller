@@ -160,10 +160,6 @@ export class InfiniteScroller
    */
   private placeholderCellIndices = new Set<number>();
 
-  private resizeObserver?: ResizeObserver;
-
-  private previousCellWidth?: number;
-
   /**
    * Add observations for all of the things that need observing
    *
@@ -172,7 +168,6 @@ export class InfiniteScroller
    */
   private setupObservations() {
     this.setupIntersectionObserver();
-    this.setupResizeObserver();
   }
 
   /**
@@ -232,33 +227,6 @@ export class InfiniteScroller
         this.intersectionObserver?.observe(cell)
       );
     }
-  }
-
-  /**
-   * The ResizeObserver observes the size of a single cell so we can update
-   * a CSS variable to help with layout.
-   *
-   * For instance, to maintain a square aspect ratio of an image, we need to
-   * know the width of the cell so we can set the height to the width.
-   *
-   * There is an `aspect-raio` CSS property, but it's very new and not widely supported.
-   */
-  private setupResizeObserver() {
-    this.resizeObserver?.disconnect();
-
-    if (this.cellContainers.length === 0) return;
-    this.resizeObserver = new ResizeObserver(entries => {
-      if (entries.length === 0) return;
-      const entry = entries[0];
-      const { width } = entry.contentRect;
-      if (width === this.previousCellWidth) return;
-      this.previousCellWidth = width;
-      const event = new CustomEvent('cellWidthChanged', {
-        detail: { width },
-      });
-      this.dispatchEvent(event);
-    });
-    this.resizeObserver.observe(this.cellContainers[0]);
   }
 
   render(): TemplateResult {
