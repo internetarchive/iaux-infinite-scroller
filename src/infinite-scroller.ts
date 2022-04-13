@@ -374,8 +374,6 @@ export class InfiniteScroller
         row-gap: ${rowGapSizeCss};
         grid-column-gap: ${colGapSizeCss};
         column-gap: ${colGapSizeCss};
-        padding: 1rem;
-        margin: auto;
       }
 
       @supports (display: grid) {
