@@ -362,7 +362,7 @@ export class InfiniteScroller
     const cellMinWidth = css`var(--infiniteScrollerCellMinWidth, 10rem)`;
     const cellMaxWidth = css`var(--infiniteScrollerCellMaxWidth, 1fr)`;
     const cellMinHeight = css`var(--infiniteScrollerCellMinHeight, 10rem)`;
-    const cellMaxHeight = css`var(--infiniteScrollerCellMaxHeight, unset)`;
+    const cellMaxHeight = css`var(--infiniteScrollerCellMaxHeight, none)`;
     const cellOutline = css`var(--infiniteScrollerCellOutline, 0)`;
 
     return css`
@@ -379,7 +379,7 @@ export class InfiniteScroller
       @supports (display: grid) {
         #container {
           display: grid;
-          flex-wrap: unset;
+          flex-wrap: nowrap;
           grid-template-columns: repeat(
             auto-fill,
             minmax(${cellMinWidth}, ${cellMaxWidth})
@@ -398,8 +398,8 @@ export class InfiniteScroller
       @supports (display: grid) {
         /* the grid takes care of the width */
         .cell-container {
-          min-width: unset;
-          max-width: unset;
+          min-width: auto;
+          max-width: none;
         }
       }
 
