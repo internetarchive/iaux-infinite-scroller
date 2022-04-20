@@ -312,11 +312,13 @@ export class InfiniteScroller
   private renderCellBuffer(bufferRange: number[]) {
     bufferRange.forEach(index => {
       if (this.renderedCellIndices.has(index)) return;
-      const cellContainer = this.shadowRoot?.querySelector(
-        `.cell-container[data-cell-index="${index}"]`
-      ) as HTMLDivElement;
+      const cellContainer = this.cellContainerForIndex(index);
       if (!cellContainer) return;
       const template = this.cellProvider?.cellForIndex(index);
+      // When a cell is visible, the height should be auto-calculated.
+      // When we remove the cell below, the height gets fixed to the last known size
+      // so the scroll doesn't jump around.
+      cellContainer.style.height = 'auto';
       if (template) {
         render(template, cellContainer);
         this.renderedCellIndices.add(index);
@@ -347,12 +349,20 @@ export class InfiniteScroller
   }
 
   private removeCell(index: number) {
-    const cellContainer = this.shadowRoot?.querySelector(
-      `.cell-container[data-cell-index="${index}"]`
-    ) as HTMLDivElement;
+    const cellContainer = this.cellContainerForIndex(index);
     if (!cellContainer) return;
+    // just before we remove the contents of the cell, we want to hardcode the height
+    // so the scroll doesn't jump around when the cell shrinks due to content removal
+    const height = cellContainer.offsetHeight;
+    cellContainer.style.height = `${height}px`;
     render(nothing, cellContainer);
     this.renderedCellIndices.delete(index);
+  }
+
+  private cellContainerForIndex(index: number): HTMLDivElement | null {
+    return this.shadowRoot?.querySelector(
+      `.cell-container[data-cell-index="${index}"]`
+    ) as HTMLDivElement;
   }
 
   static get styles(): CSSResultGroup {
