@@ -102,5 +102,10 @@ export class AppRoot
     #scrollToCellIndex {
       width: 50px;
     }
+
+    infinite-scroller {
+      --infiniteScrollerCellMinHeight: 1rem;
+      --infiniteScrollerCellMaxHeight: 20rem;
+    }
   `;
 }

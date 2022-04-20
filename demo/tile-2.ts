@@ -24,6 +24,7 @@ export class Tile2 extends LitElement {
 
       h1 {
         color: #fad9bd;
+        margin-top: 0;
       }
     `;
   }
