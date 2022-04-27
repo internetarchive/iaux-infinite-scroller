@@ -1,1 +1,5 @@
-export { YourWebComponent } from './src/your-webcomponent';
+export {
+  InfiniteScroller,
+  InfiniteScrollerCellProviderInterface,
+  InfiniteScrollerInterface,
+} from './src/infinite-scroller';
