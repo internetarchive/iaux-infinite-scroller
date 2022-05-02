@@ -243,7 +243,9 @@ export class InfiniteScroller
               class="cell-container"
               data-cell-index=${index}
               @click=${(e: Event) => this.cellSelected(e, index)}
-              @keyup=${(e: Event) => this.cellSelected(e, index)}
+              @keyup=${(e: KeyboardEvent) => {
+                if (e.key === 'Enter') this.cellSelected(e, index);
+              }}
             ></div>
           `
         )}
