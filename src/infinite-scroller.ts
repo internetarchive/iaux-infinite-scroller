@@ -18,7 +18,11 @@ export interface InfiniteScrollerCellProviderInterface {
 
 export interface InfiniteScrollerInterface extends LitElement {
   /**
-   * The number of items in the data source
+   * The number of cells to display. You may not have all the data for all the cells,
+   * but you can optimistically display more tiles while you load the data that can be
+   * displayed when it's loaded.
+   *
+   * You typically would update this when you're fetching the next batch of data.
    */
   itemCount: number;
 
@@ -28,7 +32,17 @@ export interface InfiniteScrollerInterface extends LitElement {
   cellProvider?: InfiniteScrollerCellProviderInterface;
 
   /**
-   * Disable scroll optimizations for prerendering
+   * A placeholder cell to display before the data has loaded
+   */
+  placeholderCellTemplate?: TemplateResult;
+
+  /**
+   * Disable scroll optimizations, such as lazy loading of cells
+   * and removal when they're not on-screen.
+   *
+   * Scroll optimizations are useful for most browser-usage, but when pre-rendering with Rendertron,
+   * the optimizations only show the first 10 cells and with a static page, we want
+   * to see them all.
    */
   scrollOptimizationsDisabled: boolean;
 
@@ -68,23 +82,17 @@ export class InfiniteScroller
   extends LitElement
   implements InfiniteScrollerInterface
 {
+  /** @inheritdoc */
   @property({ type: Number }) itemCount = 0;
 
+  /** @inheritdoc */
   @property({ type: Object })
   cellProvider?: InfiniteScrollerCellProviderInterface;
 
+  /** @inheritdoc */
   @property({ type: Object }) placeholderCellTemplate?: TemplateResult;
 
-  /**
-   * Disable scroll optimizations, such as lazy loading of cells
-   * and removal when they're not on-screen.
-   *
-   * Scroll optimizations are useful for most browser-usage, but when pre-rendering with Rendertron,
-   * the optimizations only show the first 10 cells and with a static page, we want
-   * to see them all.
-   *
-   * @memberof InfiniteScroller
-   */
+  /** @inheritdoc */
   @property({ type: Boolean }) scrollOptimizationsDisabled = false;
 
   /**
