@@ -105,7 +105,38 @@ export class InfiniteScroller
 
   @queryAll('.cell-container') private cellContainers!: HTMLDivElement[];
 
-  private intersectionObserver?: IntersectionObserver;
+  private intersectionObserver: IntersectionObserver = new IntersectionObserver(
+    entries => {
+      entries.forEach(entry => {
+        // If we've reached the sentinel, emit a `scrollThresholdReached` event
+        // and move on to the next entry. This is when the consumer should start
+        // fetching more data.
+        if (entry.target === this.sentinel) {
+          if (entry.isIntersecting) {
+            this.dispatchEvent(new Event('scrollThresholdReached'));
+          }
+          return;
+        }
+
+        // the rest of the entries are for individual tiles so
+        // build up a set of visible cells to be processed
+        const cellContainer = entry.target as HTMLDivElement;
+        const indexString = cellContainer.dataset.cellIndex;
+        if (!indexString) return;
+        const index = parseInt(indexString, 10);
+        if (entry.isIntersecting) {
+          this.visibleCellIndices.add(index);
+        } else {
+          this.visibleCellIndices.delete(index);
+        }
+      });
+
+      // we only need to process visible cells if scroll optimizations are enabled
+      if (!this.scrollOptimizationsDisabled) {
+        this.processVisibleCells();
+      }
+    }
+  );
 
   /** @inheritdoc */
   reload() {
@@ -141,7 +172,7 @@ export class InfiniteScroller
   }
 
   disconnectedCallback() {
-    this.intersectionObserver?.disconnect();
+    this.intersectionObserver.disconnect();
   }
 
   /**
@@ -183,37 +214,7 @@ export class InfiniteScroller
    * so we can efficiently render only the minimum number of cells
    */
   private setupIntersectionObserver() {
-    this.intersectionObserver?.disconnect();
-    this.intersectionObserver = new IntersectionObserver(entries => {
-      entries.forEach(entry => {
-        // If we've reached the sentinel, emit a `scrollThresholdReached` event
-        // and move on to the next entry. This is when the consumer should start
-        // fetching more data.
-        if (entry.target === this.sentinel) {
-          if (entry.isIntersecting) {
-            this.dispatchEvent(new Event('scrollThresholdReached'));
-          }
-          return;
-        }
-
-        // the rest of the entries are for individual tiles so
-        // build up a set of visible cells to be processed
-        const cellContainer = entry.target as HTMLDivElement;
-        const indexString = cellContainer.dataset.cellIndex;
-        if (!indexString) return;
-        const index = parseInt(indexString, 10);
-        if (entry.isIntersecting) {
-          this.visibleCellIndices.add(index);
-        } else {
-          this.visibleCellIndices.delete(index);
-        }
-      });
-
-      // we only need to process visible cells if scroll optimizations are enabled
-      if (!this.scrollOptimizationsDisabled) {
-        this.processVisibleCells();
-      }
-    });
+    this.intersectionObserver.disconnect();
 
     // observe the sentinel
     // the sentinel is an optional because `reload()` can be called before
@@ -232,7 +233,7 @@ export class InfiniteScroller
     } else {
       // if scroll optimizations are enabled, observe all of the cell containers
       this.cellContainers.forEach(cell =>
-        this.intersectionObserver?.observe(cell)
+        this.intersectionObserver.observe(cell)
       );
     }
   }
