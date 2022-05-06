@@ -1,20 +1,53 @@
-![Build Status](https://github.com/internetarchive/iaux-typescript-wc-template/actions/workflows/ci.yml/badge.svg)
+![Build Status](https://github.com/internetarchive/iaux-infinite-scroller/actions/workflows/ci.yml/badge.svg)
 
-# Internet Archive Typescript WebComponent Template
+# Internet Archive Infinite Scroller
 
-This is a base template for creating Typescript WebComponents. It is based off of the [Open WebComponents generator](https://open-wc.org/docs/development/generator/) with some IA-specific customizations and some development niceities.
+This is an infinite scroller web component, created with Lit. It detects when the user scrolls near the bottom to allow the consumer to fetch more data. It makes efficient use of browser resources by removing cells that are offscreen and loading a buffer of around either end of the visible cells to to preload cells before scrolling them into view.
 
 ## Usage
 
-1. Click the "Use this Template" button in GitHub to create a new repository based on this one.
-2. Clone your new repo and update the things below:
+```ts
+// Have your component or a standalone datasource object
+// implement the `InfiniteScrollerCellProviderInterface`,
+// which has 1 method: `cellForIndex(index: number): TemplateResult | undefined`
+class MyElement extends LitElement implements InfiniteScrollerCellProviderInterface {
+  // infinite-scroller will call your method when it needs a cell at a given index
+  cellForIndex(index: number): TemplateResult | undefined {
+    const useTile1 = Math.random() < 0.5;
+    if (useTile1) {
+      return html`<tile-1>${index}</tile-1>`;
+    } else {
+      return html`<tile-2>${index}</tile-2>`;
+    }
+  }
 
-### Things to update in your copy
-1. Remove this section
-2. Search for the strings `your-webcomponent` and `YourWebComponent` and those are most of the spots that need to be updated.
-3. `README.md` (this file). Update the readme in general, but also the badge URLs
-4. `package.json` Update the name and description
-5. Rename the `your-webcomponent.ts` and its associated `.test` file
+  // when the user has scrolled to a certain point, it will emit a
+  // `scrollThresholdReached` event, at which point you can fetch
+  // more data and increase the `itemCount`
+  scrollThresholdReached() {
+    this.infiniteScroller.itemCount += 50;
+  }
+
+  // using infinite-scroller:
+  // - `itemCount`: update this value when you want to display more data
+  // - `cellProvider`: the data source for the cells that will have `cellForIndex(index:number)`
+  // - `placeholderCell`: provide it a custom placeholder cell if you'd like
+  // - `@scrollThresholdReached`: a listener for when the user nears the bottom to fetch more
+  render() {
+    return html`
+      <infinite-scroller
+        .itemCount=${100}
+        .cellProvider=${this}
+        .placeholderCellTemplate=${html`
+          <my-placeholder-cell></my-placeholder-cell>
+        `}
+        @scrollThresholdReached=${this.scrollThresholdReached}
+      >
+      </infinite-scroller>
+    `
+  }
+}
+```
 
 ## Local Demo with `web-dev-server`
 ```bash

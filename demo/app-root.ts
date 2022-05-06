@@ -80,9 +80,6 @@ export class AppRoot
         .itemCount=${100}
         .cellProvider=${this}
         @scrollThresholdReached=${this.scrollThresholdReached}
-        @cellWidthChanged=${(e: CustomEvent<{ width: number }>) => {
-          console.debug('cellWidthChanged', e.detail.width);
-        }}
       >
       </infinite-scroller>
     `;
