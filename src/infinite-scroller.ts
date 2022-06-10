@@ -380,9 +380,9 @@ export class InfiniteScroller
     const sentinelHeightCss = css`var(--infiniteScrollerSentinelDistanceFromEnd, 200rem)`;
     const rowGapSizeCss = css`var(--infiniteScrollerRowGap, 1.7rem)`;
     const colGapSizeCss = css`var(--infiniteScrollerColGap, 1.7rem)`;
-    const cellMinWidth = css`var(--infiniteScrollerCellMinWidth, 10rem)`;
+    const cellMinWidth = css`var(--infiniteScrollerCellMinWidth, 16rem)`;
     const cellMaxWidth = css`var(--infiniteScrollerCellMaxWidth, 1fr)`;
-    const cellMinHeight = css`var(--infiniteScrollerCellMinHeight, 10rem)`;
+    const cellMinHeight = css`var(--infiniteScrollerCellMinHeight, 22.5rem)`;
     const cellMaxHeight = css`var(--infiniteScrollerCellMaxHeight, none)`;
     const cellOutline = css`var(--infiniteScrollerCellOutline, 0)`;
 
