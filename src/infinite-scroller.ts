@@ -27,13 +27,6 @@ export interface InfiniteScrollerInterface extends LitElement {
   itemCount: number;
 
   /**
-   * In cases where the eventual "full"/"max" item count is known before all cells are
-   * actually displayed, it can be helpful to provide this information to screen-readers
-   * so that they can announce the total size upfront.
-   */
-  predictedFullItemCount?: number;
-
-  /**
    * The cell provider to provide cells for the scroller
    */
   cellProvider?: InfiniteScrollerCellProviderInterface;
@@ -253,7 +246,7 @@ export class InfiniteScroller
     const indexArray = generateRange(0, finalIndex, 1);
     return html`
       <div id="container" role="feed">
-        <div id="sentinel"></div>
+        <div id="sentinel" aria-hidden="true"></div>
         ${repeat(
           indexArray,
           index => index,
@@ -261,7 +254,7 @@ export class InfiniteScroller
             <article
               class="cell-container"
               aria-posinset=${index + 1}
-              aria-setsize=${this.predictedFullItemCount ?? -1}
+              aria-setsize=${this.itemCount}
               data-cell-index=${index}
               @click=${(e: Event) => this.cellSelected(e, index)}
               @keyup=${(e: KeyboardEvent) => {
