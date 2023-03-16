@@ -86,9 +86,6 @@ export class InfiniteScroller
   @property({ type: Number }) itemCount = 0;
 
   /** @inheritdoc */
-  @property({ type: Number }) predictedFullItemCount?: number;
-
-  /** @inheritdoc */
   @property({ type: Object })
   cellProvider?: InfiniteScrollerCellProviderInterface;
 
