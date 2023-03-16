@@ -95,6 +95,9 @@ export class InfiniteScroller
   /** @inheritdoc */
   @property({ type: Boolean }) scrollOptimizationsDisabled = false;
 
+  /** The accessible label for the infinite scroller section landmark */
+  @property({ type: String }) ariaLandmarkLabel?: string;
+
   /**
    * The sentinel is our marker to know when we need to load more data
    *
@@ -241,24 +244,27 @@ export class InfiniteScroller
   render(): TemplateResult {
     const finalIndex = this.itemCount - 1;
     const indexArray = generateRange(0, finalIndex, 1);
+    const containerAriaLabel = this.ariaLandmarkLabel ?? nothing;
     return html`
-      <div id="container">
-        <div id="sentinel"></div>
+      <section id="container" role="feed" aria-label=${containerAriaLabel}>
+        <div id="sentinel" aria-hidden="true"></div>
         ${repeat(
           indexArray,
           index => index,
           index => html`
-            <div
+            <article
               class="cell-container"
+              aria-posinset=${index + 1}
+              aria-setsize=${this.itemCount}
               data-cell-index=${index}
               @click=${(e: Event) => this.cellSelected(e, index)}
               @keyup=${(e: KeyboardEvent) => {
                 if (e.key === 'Enter') this.cellSelected(e, index);
               }}
-            ></div>
+            ></article>
           `
         )}
-      </div>
+      </section>
     `;
   }
 
