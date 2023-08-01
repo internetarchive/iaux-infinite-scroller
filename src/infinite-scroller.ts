@@ -5,7 +5,6 @@ import {
   TemplateResult,
   CSSResultGroup,
   PropertyValues,
-  render,
   nothing,
 } from 'lit';
 import { property, customElement, query, queryAll } from 'lit/decorators.js';
@@ -138,13 +137,16 @@ export class InfiniteScroller
       if (!this.scrollOptimizationsDisabled) {
         this.processVisibleCells();
       }
+
+      // We will render the newly updated cell buffer on next update
+      this.requestUpdate();
     }
   );
 
   /** @inheritdoc */
   reload() {
     const range = generateRange(0, Math.max(0, this.itemCount - 1), 1);
-    range.forEach(index => this.removeCell(index));
+    range.forEach(index => this.removeCellFromRenderedSet(index));
     this.renderedCellIndices.clear();
     this.visibleCellIndices.clear();
     this.placeholderCellIndices.clear();
@@ -251,18 +253,34 @@ export class InfiniteScroller
         ${repeat(
           indexArray,
           index => index,
-          index => html`
-            <article
-              class="cell-container"
-              aria-posinset=${index + 1}
-              aria-setsize=${this.itemCount}
-              data-cell-index=${index}
-              @click=${(e: Event) => this.cellSelected(e, index)}
-              @keyup=${(e: KeyboardEvent) => {
-                if (e.key === 'Enter') this.cellSelected(e, index);
-              }}
-            ></article>
-          `
+          index => {
+            // Determine what should be rendered in this cell, based on our prior processing
+            const shouldRenderCell = this.renderedCellIndices.has(index);
+            const shouldRenderPlaceholder =
+              this.placeholderCellIndices.has(index);
+
+            let cellContent: TemplateResult | typeof nothing = nothing;
+            if (shouldRenderCell) {
+              cellContent = this.cellProvider?.cellForIndex(index) ?? nothing;
+            } else if (shouldRenderPlaceholder) {
+              cellContent = this.placeholderCellTemplate ?? nothing;
+            }
+
+            return html`
+              <article
+                class="cell-container"
+                aria-posinset=${index + 1}
+                aria-setsize=${this.itemCount}
+                data-cell-index=${index}
+                @click=${(e: Event) => this.cellSelected(e, index)}
+                @keyup=${(e: KeyboardEvent) => {
+                  if (e.key === 'Enter') this.cellSelected(e, index);
+                }}
+              >
+                ${cellContent}
+              </article>
+            `;
+          }
         )}
       </section>
     `;
@@ -279,12 +297,36 @@ export class InfiniteScroller
   }
 
   /**
+   * An array of cell indices that need to be rendered based
+   * on the currently visible cells and the size of the buffer.
+   */
+  private get bufferRange(): number[] {
+    const cellBufferSize = Math.max(10, this.visibleCellIndices.size);
+
+    // if there are no visible cells, use the first `cellBufferSize`
+    const noVisibleCells = this.visibleCellIndices.size === 0;
+    const minVisibleIndex = Math.min(...this.visibleCellIndices);
+    const maxVisibleIndex = Math.max(...this.visibleCellIndices);
+
+    const minBufferIndex = noVisibleCells
+      ? 0
+      : Math.max(minVisibleIndex - cellBufferSize, 0);
+    const maxBufferIndex = noVisibleCells
+      ? cellBufferSize
+      : Math.min(maxVisibleIndex + cellBufferSize, this.itemCount - 1);
+
+    return generateRange(minBufferIndex, maxBufferIndex, 1);
+  }
+
+  /**
    * After the IntersectionObserver processes all of the currently
    * viewable cells, we want to add a buffer on either side to help
    * with scroll performance.
    *
-   * This methods calculates what cells need to be rendered based
-   * on the currently visible cells and the size of the buffer.
+   * This method updates the render state of cells based on their
+   * visibility, marking those within the buffer range with the
+   * desired content to render (provided cell template or placeholder),
+   * and marking those outside the buffer range for removal.
    *
    * @private
    * @returns
@@ -292,24 +334,9 @@ export class InfiniteScroller
    */
   private processVisibleCells() {
     const visibleCellArray = Array.from(this.visibleCellIndices);
-    const cellBufferSize = Math.max(10, visibleCellArray.length);
-    const sortedVisibleRange = visibleCellArray.sort((a, b) =>
-      a > b ? 1 : -1
-    );
-    // if there are no visible cells, use the first `cellBufferSize`
-    const noVisibleCells = visibleCellArray.length === 0;
-    const minIndex = noVisibleCells
-      ? 0
-      : Math.max(sortedVisibleRange[0] - cellBufferSize, 0);
-    const maxIndex = noVisibleCells
-      ? cellBufferSize
-      : Math.min(
-          sortedVisibleRange[sortedVisibleRange.length - 1] + cellBufferSize,
-          this.itemCount - 1
-        );
-    const bufferRange = generateRange(minIndex, maxIndex, 1);
-    this.renderCellBuffer(bufferRange);
-    this.removeCellsOutsideBufferRange(bufferRange);
+    const { bufferRange } = this;
+    this.processCellBufferTypes(bufferRange);
+    this.processCellsOutsideBufferRange(bufferRange);
 
     const visibleCellsChangedEvent = new CustomEvent('visibleCellsChanged', {
       detail: {
@@ -320,15 +347,19 @@ export class InfiniteScroller
   }
 
   /**
-   * Render cells in the given buffer range
+   * Updates the render/placeholder state of cells within the
+   * given buffer range.
    *
    * @private
    * @param {number[]} bufferRange
    * @memberof InfiniteScroller
    */
-  private renderCellBuffer(bufferRange: number[]) {
+  private processCellBufferTypes(bufferRange: number[]) {
     bufferRange.forEach(index => {
+      // If the cell is within the buffered range and is already rendered, there
+      // is nothing more to do here.
       if (this.renderedCellIndices.has(index)) return;
+
       const cellContainer = this.cellContainerForIndex(index);
       if (!cellContainer) return;
       const template = this.cellProvider?.cellForIndex(index);
@@ -337,42 +368,42 @@ export class InfiniteScroller
       // so the scroll doesn't jump around.
       cellContainer.style.height = 'auto';
       if (template) {
-        render(template, cellContainer);
+        // Template is available for this cell, so mark it for rendering.
         this.renderedCellIndices.add(index);
         this.placeholderCellIndices.delete(index);
       } else {
-        if (this.placeholderCellIndices.has(index)) return;
-        render(this.placeholderCellTemplate, cellContainer);
+        // No template is available for this cell yet, so we mark it to receive a placeholder.
         this.placeholderCellIndices.add(index);
       }
     });
   }
 
   /**
-   * Remove cells from the DOM that are outside of the buffer range
+   * Marks cells outside of the buffer range for derendering and
+   * freezes the height of their cell containers.
    *
    * @private
    * @param {number[]} bufferRange
    * @memberof InfiniteScroller
    */
-  private removeCellsOutsideBufferRange(bufferRange: number[]) {
+  private processCellsOutsideBufferRange(bufferRange: number[]) {
     // get the rendered cells outside of the buffer range so we can remove them
     const renderedUnbufferedCells = Array.from(this.renderedCellIndices).filter(
       index => !bufferRange.includes(index)
     );
     renderedUnbufferedCells.forEach(index => {
-      this.removeCell(index);
+      this.removeCellFromRenderedSet(index);
     });
   }
 
-  private removeCell(index: number) {
+  private removeCellFromRenderedSet(index: number) {
     const cellContainer = this.cellContainerForIndex(index);
     if (!cellContainer) return;
-    // just before we remove the contents of the cell, we want to hardcode the height
+    // since the contents of the cell are about to be removed, we want to hardcode the height
     // so the scroll doesn't jump around when the cell shrinks due to content removal
     const height = cellContainer.offsetHeight;
     cellContainer.style.height = `${height}px`;
-    render(nothing, cellContainer);
+    // Delete it from the set of cells we render, so that it is emptied on the next render pass.
     this.renderedCellIndices.delete(index);
   }
 
