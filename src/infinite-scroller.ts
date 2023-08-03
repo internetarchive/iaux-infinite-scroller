@@ -334,10 +334,8 @@ export class InfiniteScroller
    * viewable cells, we want to add a buffer on either side to help
    * with scroll performance.
    *
-   * This method updates the render state of cells based on their
-   * visibility, marking those within the buffer range with the
-   * desired content to render (provided cell template or placeholder),
-   * and marking those outside the buffer range for removal.
+   * This methods calculates what cells need to be rendered based
+-  * on the currently visible cells and the size of the buffer.
    *
    * @private
    * @returns
