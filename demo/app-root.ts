@@ -23,7 +23,7 @@ export class AppRoot
 
   private showTile(design: '1' | '2') {
     this.tileDesign = design;
-    this.infiniteScroller.reload();
+    this.infiniteScroller.refreshAllVisibleCells();
   }
 
   private scrollThresholdReached() {
