@@ -52,6 +52,21 @@ export interface InfiniteScrollerInterface extends LitElement {
   reload(): void;
 
   /**
+   * Refreshes the content of the cell at the given index
+   * @param index Which cell to refresh content for
+   */
+  refreshCell(index: number): void;
+
+  /**
+   * Refreshes the content of all cells within the rendered cell buffer range.
+   *
+   * Prefer this to the more expensive `reload()` when it is only necessary to
+   * propagate a state change in the rendered cell contents and there is no need
+   * for all cells to fully reload (as in the case of a major layout change).
+   */
+  refreshAllVisibleCells(): void;
+
+  /**
    * Scroll to a cell index
    *
    * @param index number
@@ -149,6 +164,20 @@ export class InfiniteScroller
     this.visibleCellIndices.clear();
     this.placeholderCellIndices.clear();
     this.setupObservations();
+  }
+
+  /** @inheritdoc */
+  refreshCell(index: number): void {
+    this.removeCell(index);
+    if (this.bufferRange.includes(index)) {
+      this.renderCellBuffer([index]);
+    }
+  }
+
+  /** @inheritdoc */
+  refreshAllVisibleCells(): void {
+    this.bufferRange.forEach(index => this.removeCell(index));
+    this.renderCellBuffer(this.bufferRange);
   }
 
   /** @inheritdoc */
@@ -279,6 +308,28 @@ export class InfiniteScroller
   }
 
   /**
+   * An array of cell indices that need to be rendered based
+   * on the currently visible cells and the size of the buffer.
+   */
+  private get bufferRange(): number[] {
+    const cellBufferSize = Math.max(10, this.visibleCellIndices.size);
+
+    // if there are no visible cells, use the first `cellBufferSize`
+    const noVisibleCells = this.visibleCellIndices.size === 0;
+    const minVisibleIndex = Math.min(...this.visibleCellIndices);
+    const maxVisibleIndex = Math.max(...this.visibleCellIndices);
+
+    const minBufferIndex = noVisibleCells
+      ? 0
+      : Math.max(minVisibleIndex - cellBufferSize, 0);
+    const maxBufferIndex = noVisibleCells
+      ? cellBufferSize
+      : Math.min(maxVisibleIndex + cellBufferSize, this.itemCount - 1);
+
+    return generateRange(minBufferIndex, maxBufferIndex, 1);
+  }
+
+  /**
    * After the IntersectionObserver processes all of the currently
    * viewable cells, we want to add a buffer on either side to help
    * with scroll performance.
@@ -292,22 +343,7 @@ export class InfiniteScroller
    */
   private processVisibleCells() {
     const visibleCellArray = Array.from(this.visibleCellIndices);
-    const cellBufferSize = Math.max(10, visibleCellArray.length);
-    const sortedVisibleRange = visibleCellArray.sort((a, b) =>
-      a > b ? 1 : -1
-    );
-    // if there are no visible cells, use the first `cellBufferSize`
-    const noVisibleCells = visibleCellArray.length === 0;
-    const minIndex = noVisibleCells
-      ? 0
-      : Math.max(sortedVisibleRange[0] - cellBufferSize, 0);
-    const maxIndex = noVisibleCells
-      ? cellBufferSize
-      : Math.min(
-          sortedVisibleRange[sortedVisibleRange.length - 1] + cellBufferSize,
-          this.itemCount - 1
-        );
-    const bufferRange = generateRange(minIndex, maxIndex, 1);
+    const { bufferRange } = this;
     this.renderCellBuffer(bufferRange);
     this.removeCellsOutsideBufferRange(bufferRange);
 
