@@ -335,7 +335,7 @@ export class InfiniteScroller
    * with scroll performance.
    *
    * This methods calculates what cells need to be rendered based
--  * on the currently visible cells and the size of the buffer.
+   * on the currently visible cells and the size of the buffer.
    *
    * @private
    * @returns
