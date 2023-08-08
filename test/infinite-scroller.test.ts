@@ -60,4 +60,58 @@ describe('Infinite Scroller', () => {
     expect((cells?.[1] as HTMLDivElement).innerText).to.equal('cell-1');
     expect((cells?.[2] as HTMLDivElement).innerText).to.equal('cell-2');
   });
+
+  it('refreshes specific cell content when requested', async () => {
+    const cellData = ['foo', 'bar', 'baz'];
+    const cellProvider: InfiniteScrollerCellProviderInterface = {
+      cellForIndex: (index: number): TemplateResult | undefined =>
+        html`cell-${index} ${cellData[index]}`,
+    };
+    const el = await fixture<InfiniteScroller>(
+      html`<infinite-scroller
+        .itemCount=${3}
+        .cellProvider=${cellProvider}
+      ></infinite-scroller>`
+    );
+    const cells = el.shadowRoot?.querySelectorAll('.cell-container');
+
+    // wait for the cells to be populated
+    await promisedSleep(100);
+    expect(cells?.length).to.equal(3);
+
+    cellData.splice(0, 3, 'a', 'b', 'c');
+    el.refreshCell(1);
+    await el.updateComplete;
+
+    expect((cells?.[0] as HTMLDivElement).innerText).to.equal('cell-0 foo');
+    expect((cells?.[1] as HTMLDivElement).innerText).to.equal('cell-1 b');
+    expect((cells?.[2] as HTMLDivElement).innerText).to.equal('cell-2 baz');
+  });
+
+  it('refreshes all visible cell content when requested', async () => {
+    const cellData = ['foo', 'bar', 'baz'];
+    const cellProvider: InfiniteScrollerCellProviderInterface = {
+      cellForIndex: (index: number): TemplateResult | undefined =>
+        html`cell-${index} ${cellData[index]}`,
+    };
+    const el = await fixture<InfiniteScroller>(
+      html`<infinite-scroller
+        .itemCount=${3}
+        .cellProvider=${cellProvider}
+      ></infinite-scroller>`
+    );
+    const cells = el.shadowRoot?.querySelectorAll('.cell-container');
+
+    // wait for the cells to be populated
+    await promisedSleep(100);
+    expect(cells?.length).to.equal(3);
+
+    cellData.splice(0, 3, 'a', 'b', 'c');
+    el.refreshAllVisibleCells();
+    await el.updateComplete;
+
+    expect((cells?.[0] as HTMLDivElement).innerText).to.equal('cell-0 a');
+    expect((cells?.[1] as HTMLDivElement).innerText).to.equal('cell-1 b');
+    expect((cells?.[2] as HTMLDivElement).innerText).to.equal('cell-2 c');
+  });
 });
