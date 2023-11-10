@@ -293,6 +293,7 @@ export class InfiniteScroller
             ></article>
           `
         )}
+        <slot name="result-last-tile"></slot>
       </section>
     `;
   }
