@@ -411,6 +411,7 @@ export class InfiniteScroller
     cellContainer.style.height = `${height}px`;
     render(nothing, cellContainer);
     this.renderedCellIndices.delete(index);
+    this.placeholderCellIndices.delete(index);
   }
 
   private cellContainerForIndex(index: number): HTMLDivElement | null {
