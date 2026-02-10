@@ -2,6 +2,7 @@ import { html, css, LitElement, TemplateResult } from 'lit';
 import { customElement, query } from 'lit/decorators.js';
 import './tile-1';
 import './tile-2';
+import './placeholder-tile';
 import '../src/infinite-scroller';
 import type {
   InfiniteScroller,
@@ -19,7 +20,11 @@ export class AppRoot
 
   @query('#animatedCheckbox') animatedCheckbox!: HTMLInputElement;
 
+  @query('#placeholdersCheckbox') placeholdersCheckbox!: HTMLInputElement;
+
   private tileDesign: '1' | '2' = '1';
+
+  private loadedCells = new Set();
 
   private showTile(design: '1' | '2') {
     this.tileDesign = design;
@@ -40,10 +45,25 @@ export class AppRoot
   }
 
   cellForIndex(index: number): TemplateResult | undefined {
+    const usingPlaceholders = this.placeholdersCheckbox.checked;
+    if (usingPlaceholders && !this.loadedCells.has(index)) {
+      setTimeout(() => {
+        if (!this.loadedCells.has(index)) {
+          this.loadedCells.add(index);
+          this.infiniteScroller.refreshCell(index);
+        }
+      }, 1000);
+      return undefined;
+    }
+
     if (this.tileDesign === '1') {
       return html`<tile-1>${index}</tile-1>`;
     }
     return html`<tile-2>${index}</tile-2>`;
+  }
+
+  get placeholderTemplate(): TemplateResult {
+    return html`<placeholder-tile></placeholder-tile>`;
   }
 
   render() {
@@ -65,6 +85,7 @@ export class AppRoot
           >
             Tile 2
           </button>
+          Placeholders: <input type="checkbox" id="placeholdersCheckbox" />
         </div>
         <div>
           <form @submit=${this.scrollToCell}>
@@ -77,8 +98,9 @@ export class AppRoot
       </div>
 
       <infinite-scroller
-        .itemCount=${100}
+        .itemCount=${5000}
         .cellProvider=${this}
+        .placeholderCellTemplate=${this.placeholderTemplate}
         @scrollThresholdReached=${this.scrollThresholdReached}
       >
       </infinite-scroller>
