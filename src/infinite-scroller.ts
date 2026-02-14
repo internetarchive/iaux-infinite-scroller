@@ -158,8 +158,9 @@ export class InfiniteScroller
 
   /** @inheritdoc */
   reload() {
-    const range = generateRange(0, Math.max(0, this.itemCount - 1), 1);
-    range.forEach(index => this.removeCell(index));
+    for (const index of this.renderedCellIndices) {
+      this.removeCell(index);
+    }
     this.renderedCellIndices.clear();
     this.visibleCellIndices.clear();
     this.placeholderCellIndices.clear();
@@ -199,12 +200,21 @@ export class InfiniteScroller
       changed.has('itemCount') ||
       changed.has('scrollOptimizationsDisabled')
     ) {
+      if (changed.has('itemCount')) {
+        this.pruneStaleIndices();
+      }
       this.setupObservations();
     }
   }
 
+  connectedCallback() {
+    super.connectedCallback?.();
+    this.setupObservations();
+  }
+
   disconnectedCallback() {
     this.intersectionObserver.disconnect();
+    super.disconnectedCallback?.();
   }
 
   /**
@@ -230,6 +240,22 @@ export class InfiniteScroller
    * @memberof InfiniteScroller
    */
   private placeholderCellIndices = new Set<number>();
+
+  /**
+   * Prunes any obsolete indices from the visible/rendered/placeholder sets that
+   * lie outside the range defined by the current itemCount.
+   */
+  private pruneStaleIndices() {
+    for (const index of this.visibleCellIndices) {
+      if (index >= this.itemCount) this.visibleCellIndices.delete(index);
+    }
+    for (const index of this.renderedCellIndices) {
+      if (index >= this.itemCount) this.renderedCellIndices.delete(index);
+    }
+    for (const index of this.placeholderCellIndices) {
+      if (index >= this.itemCount) this.placeholderCellIndices.delete(index);
+    }
+  }
 
   /**
    * Add observations for all of the things that need observing
@@ -394,8 +420,9 @@ export class InfiniteScroller
    */
   private removeCellsOutsideBufferRange(bufferRange: number[]) {
     // get the rendered cells outside of the buffer range so we can remove them
+    const bufferSet = new Set(bufferRange);
     const renderedUnbufferedCells = Array.from(this.renderedCellIndices).filter(
-      index => !bufferRange.includes(index)
+      index => !bufferSet.has(index)
     );
     renderedUnbufferedCells.forEach(index => {
       this.removeCell(index);
@@ -415,9 +442,7 @@ export class InfiniteScroller
   }
 
   private cellContainerForIndex(index: number): HTMLDivElement | null {
-    return this.shadowRoot?.querySelector(
-      `.cell-container[data-cell-index="${index}"]`
-    ) as HTMLDivElement;
+    return this.cellContainers[index] ?? null;
   }
 
   static get styles(): CSSResultGroup {
