@@ -91,7 +91,7 @@ export class AppRoot
           <form @submit=${this.scrollToCell}>
             Scroll to cell index:
             <input type="number" id="scrollToCellIndex" /> Animated:
-            <input type="checkbox" id="animatedCheckbox" checked />
+            <input type="checkbox" id="animatedCheckbox" />
             <input type="submit" value="Scroll" />
           </form>
         </div>

@@ -164,17 +164,21 @@ describe('Infinite Scroller Virtualization', () => {
     expect(cells?.length).to.be.greaterThan(0);
   });
 
-  it('renders top and bottom struts in virtualized mode', async () => {
+  it('renders scroll-spacer and transformed container in virtualized mode', async () => {
     const el = await fixture<InfiniteScroller>(
       html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`
     );
 
     await el.bufferStabilized;
 
-    const topStrut = el.shadowRoot?.querySelector('#top-strut');
-    const bottomStrut = el.shadowRoot?.querySelector('#bottom-strut');
-    expect(topStrut).to.exist;
-    expect(bottomStrut).to.exist;
+    const scrollSpacer = el.shadowRoot?.querySelector(
+      '#scroll-spacer'
+    ) as HTMLElement;
+    const container = el.shadowRoot?.querySelector('#container') as HTMLElement;
+    expect(scrollSpacer).to.exist;
+    expect(container).to.exist;
+    expect(parseFloat(scrollSpacer.style.height)).to.be.greaterThan(0);
+    expect(container.style.transform).to.equal('translateY(0px)');
   });
 
   it('scrollToCell returns true when given a valid cell index', async () => {
@@ -219,11 +223,9 @@ describe('Infinite Scroller Virtualization', () => {
     const cells = el.shadowRoot?.querySelectorAll('.cell-container');
     expect(cells?.length).to.equal(50);
 
-    // No struts should be present when scroll optimization is disabled
-    const topStrut = el.shadowRoot?.querySelector('#top-strut');
-    const bottomStrut = el.shadowRoot?.querySelector('#bottom-strut');
-    expect(topStrut).to.not.exist;
-    expect(bottomStrut).to.not.exist;
+    // No scroll-spacer or struts should be present when scroll optimization is disabled
+    const scrollSpacer = el.shadowRoot?.querySelector('#scroll-spacer');
+    expect(scrollSpacer).to.not.exist;
   });
 
   it('sets correct aria set attributes on buffered cells', async () => {
@@ -401,37 +403,32 @@ describe('Infinite Scroller Virtualization', () => {
     expect(event?.detail?.index).to.equal(0);
   });
 
-  it('has non-zero bottom strut when buffer does not cover all rows', async () => {
+  it('has non-zero spacer height when buffer does not cover all rows', async () => {
     const el = await fixture<InfiniteScroller>(
       html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`
     );
 
     await el.bufferStabilized;
 
-    const bottomStrut = el.shadowRoot?.querySelector(
-      '#bottom-strut'
+    const scrollSpacer = el.shadowRoot?.querySelector(
+      '#scroll-spacer'
     ) as HTMLElement;
-    expect(bottomStrut).to.exist;
-
-    const height = parseFloat(bottomStrut.style.height);
-    expect(height).to.be.greaterThan(0);
+    expect(scrollSpacer).to.exist;
+    expect(parseFloat(scrollSpacer.style.height)).to.be.greaterThan(0);
   });
 
-  it('has zero-height top strut when buffer starts at index 0', async () => {
+  it('has zero buffer offset when buffer starts at index 0', async () => {
     const el = await fixture<InfiniteScroller>(
       html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`
     );
 
     await el.bufferStabilized;
 
-    const topStrut = el.shadowRoot?.querySelector('#top-strut') as HTMLElement;
-    expect(topStrut).to.exist;
-
-    const height = parseFloat(topStrut.style.height);
-    expect(height).to.equal(0);
+    const container = el.shadowRoot?.querySelector('#container') as HTMLElement;
+    expect(container.style.transform).to.equal('translateY(0px)');
   });
 
-  it('renders all cells and zero-height struts when all items fit in buffer', async () => {
+  it('renders all cells with zero offset when all items fit in buffer', async () => {
     const cellProvider: InfiniteScrollerCellProviderInterface = {
       cellForIndex: (index: number): TemplateResult | undefined =>
         html`<div>cell-${index}</div>`,
@@ -448,12 +445,12 @@ describe('Infinite Scroller Virtualization', () => {
     const cells = el.shadowRoot?.querySelectorAll('.cell-container');
     expect(cells?.length).to.equal(5);
 
-    const topStrut = el.shadowRoot?.querySelector('#top-strut') as HTMLElement;
-    const bottomStrut = el.shadowRoot?.querySelector(
-      '#bottom-strut'
+    const scrollSpacer = el.shadowRoot?.querySelector(
+      '#scroll-spacer'
     ) as HTMLElement;
-    expect(parseFloat(topStrut.style.height)).to.equal(0);
-    expect(parseFloat(bottomStrut.style.height)).to.equal(0);
+    const container = el.shadowRoot?.querySelector('#container') as HTMLElement;
+    expect(parseFloat(scrollSpacer.style.height)).to.be.greaterThan(0);
+    expect(container.style.transform).to.equal('translateY(0px)');
   });
 
   it('does not render cells beyond itemCount', async () => {
@@ -473,7 +470,7 @@ describe('Infinite Scroller Virtualization', () => {
     }
   });
 
-  it('clears cells and struts after reload', async () => {
+  it('clears cells and resets scroll geometry after reload', async () => {
     const cellProvider: InfiniteScrollerCellProviderInterface = {
       cellForIndex: (index: number): TemplateResult | undefined =>
         html`<div>cell-${index}</div>`,
@@ -497,10 +494,9 @@ describe('Infinite Scroller Virtualization', () => {
     cells = el.shadowRoot?.querySelectorAll('.cell-container');
     expect(cells?.length).to.be.greaterThan(0);
 
-    // Top strut should be 0 since buffer starts at 0 after reload
-    const topStrut = el.shadowRoot?.querySelector('#top-strut') as HTMLElement;
-    expect(topStrut).to.exist;
-    expect(parseFloat(topStrut.style.height)).to.equal(0);
+    // Buffer offset should be 0 since buffer starts at 0 after reload
+    const container = el.shadowRoot?.querySelector('#container') as HTMLElement;
+    expect(container.style.transform).to.equal('translateY(0px)');
   });
 
   it('getVisibleCellIndices returns an array of indices for all cells in the viewport', async () => {
@@ -722,25 +718,25 @@ describe('scrollThresholdReached sentinel behavior', () => {
   });
 });
 
-describe('Strut and placeholder edge cases', () => {
-  it('bottom strut height increases when itemCount grows', async () => {
+describe('Scroll geometry and placeholder edge cases', () => {
+  it('spacer height increases when itemCount grows', async () => {
     const el = await fixture<InfiniteScroller>(
       html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`
     );
 
     await el.bufferStabilized;
 
-    const bottomStrut = el.shadowRoot?.querySelector(
-      '#bottom-strut'
+    const scrollSpacer = el.shadowRoot?.querySelector(
+      '#scroll-spacer'
     ) as HTMLElement;
-    const initialHeight = parseFloat(bottomStrut.style.height);
+    const initialHeight = parseFloat(scrollSpacer.style.height);
     expect(initialHeight).to.be.greaterThan(0);
 
-    // If we double the item count, the bottom strut should grow
+    // If we double the item count, the spacer should grow
     el.itemCount = 2000;
     await el.updateComplete;
 
-    const newHeight = parseFloat(bottomStrut.style.height);
+    const newHeight = parseFloat(scrollSpacer.style.height);
     expect(newHeight).to.be.greaterThan(initialHeight);
   });
 
@@ -798,16 +794,18 @@ describe('Strut and placeholder edge cases', () => {
     });
   });
 
-  it('bottom strut is zero when all items fit in buffer', async () => {
+  it('spacer height covers all content and offset is zero when all items fit', async () => {
     const el = await fixture<InfiniteScroller>(
       html`<infinite-scroller .itemCount=${3}></infinite-scroller>`
     );
 
     await el.bufferStabilized;
 
-    const bottomStrut = el.shadowRoot?.querySelector(
-      '#bottom-strut'
+    const scrollSpacer = el.shadowRoot?.querySelector(
+      '#scroll-spacer'
     ) as HTMLElement;
-    expect(parseFloat(bottomStrut.style.height)).to.equal(0);
+    const container = el.shadowRoot?.querySelector('#container') as HTMLElement;
+    expect(parseFloat(scrollSpacer.style.height)).to.be.greaterThan(0);
+    expect(container.style.transform).to.equal('translateY(0px)');
   });
 });
