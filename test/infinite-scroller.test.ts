@@ -145,6 +145,10 @@ describe('Infinite Scroller', () => {
 });
 
 describe('Infinite Scroller Virtualization', () => {
+  afterEach(() => {
+    window.scrollTo(0, 0);
+  });
+
   it('renders fewer DOM elements than itemCount for large lists', async () => {
     const cellProvider: InfiniteScrollerCellProviderInterface = {
       cellForIndex: (index: number): TemplateResult | undefined =>
@@ -197,6 +201,30 @@ describe('Infinite Scroller Virtualization', () => {
 
     const result = await el.scrollToCell(500, false);
     expect(result).to.be.true;
+  });
+
+  it('scrollToCell places target cell in DOM for far-away indices', async () => {
+    const cellProvider: InfiniteScrollerCellProviderInterface = {
+      cellForIndex: (index: number): TemplateResult | undefined =>
+        html`<div>cell-${index}</div>`,
+    };
+    const el = await fixture<InfiniteScroller>(
+      html`<infinite-scroller
+        .itemCount=${1000}
+        .cellProvider=${cellProvider}
+      ></infinite-scroller>`
+    );
+
+    await el.bufferStabilized;
+
+    const result = await el.scrollToCell(500, false);
+    expect(result).to.be.true;
+
+    const targetCell = el.shadowRoot?.querySelector(
+      '.cell-container[data-cell-index="500"]'
+    );
+    expect(targetCell).to.exist;
+    expect(targetCell?.textContent).to.equal('cell-500');
   });
 
   it('scrollToCell returns false when index is out of bounds', async () => {
@@ -617,6 +645,10 @@ describe('Infinite Scroller Virtualization', () => {
 });
 
 describe('scrollThresholdReached sentinel behavior', () => {
+  afterEach(() => {
+    window.scrollTo(0, 0);
+  });
+
   it('fires scrollThresholdReached when sentinel is visible', async () => {
     // When itemCount is small, the sentinel is initially already in the viewport,
     // so the event should fire immediately.
@@ -719,6 +751,10 @@ describe('scrollThresholdReached sentinel behavior', () => {
 });
 
 describe('Scroll geometry and placeholder edge cases', () => {
+  afterEach(() => {
+    window.scrollTo(0, 0);
+  });
+
   it('spacer height increases when itemCount grows', async () => {
     const el = await fixture<InfiniteScroller>(
       html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`
@@ -807,5 +843,130 @@ describe('Scroll geometry and placeholder edge cases', () => {
     const container = el.shadowRoot?.querySelector('#container') as HTMLElement;
     expect(parseFloat(scrollSpacer.style.height)).to.be.greaterThan(0);
     expect(container.style.transform).to.equal('translateY(0px)');
+  });
+});
+
+describe('Buffer multiplier and estimatedCellHeight', () => {
+  it('higher bufferMultiplier produces a larger initial buffer', async () => {
+    const cellProvider: InfiniteScrollerCellProviderInterface = {
+      cellForIndex: (index: number): TemplateResult | undefined =>
+        html`<div>cell-${index}</div>`,
+    };
+
+    // With multiplier=0, only bufferSize floor applies
+    const elSmall = await fixture<InfiniteScroller>(
+      html`<infinite-scroller
+        .itemCount=${10000}
+        .cellProvider=${cellProvider}
+        .bufferMultiplier=${0}
+      ></infinite-scroller>`
+    );
+    // Read the initial buffer size before stabilization settles
+    await elSmall.updateComplete;
+    const smallCount =
+      elSmall.shadowRoot?.querySelectorAll('.cell-container').length ?? 0;
+
+    const elLarge = await fixture<InfiniteScroller>(
+      html`<infinite-scroller
+        .itemCount=${10000}
+        .cellProvider=${cellProvider}
+        .bufferMultiplier=${3}
+      ></infinite-scroller>`
+    );
+    await elLarge.updateComplete;
+    const largeCount =
+      elLarge.shadowRoot?.querySelectorAll('.cell-container').length ?? 0;
+
+    // With multiplier=3, the initial buffer should be larger than with 0
+    expect(largeCount).to.be.greaterThan(smallCount);
+  });
+
+  it('estimatedCellHeight affects spacer height before stabilization', async () => {
+    // Use a very large estimated height vs a small one to see the difference
+    // in how the initial geometry is computed (before measured heights take over)
+    const elTall = await fixture<InfiniteScroller>(
+      html`<infinite-scroller
+        .itemCount=${100}
+        .estimatedCellHeight=${500}
+      ></infinite-scroller>`
+    );
+    // Read spacer height right after first render, before stabilization completes
+    await elTall.updateComplete;
+    const tallSpacer = elTall.shadowRoot?.querySelector(
+      '#scroll-spacer'
+    ) as HTMLElement;
+    const tallHeight = parseFloat(tallSpacer.style.height);
+
+    const elShort = await fixture<InfiniteScroller>(
+      html`<infinite-scroller
+        .itemCount=${100}
+        .estimatedCellHeight=${50}
+      ></infinite-scroller>`
+    );
+    await elShort.updateComplete;
+    const shortSpacer = elShort.shadowRoot?.querySelector(
+      '#scroll-spacer'
+    ) as HTMLElement;
+    const shortHeight = parseFloat(shortSpacer.style.height);
+
+    // Taller estimate should produce a taller spacer
+    expect(tallHeight).to.be.greaterThan(shortHeight);
+    expect(shortHeight).to.be.greaterThan(0);
+  });
+});
+
+describe('scrollToCell animated and lifecycle', () => {
+  it('scrollToCell with animated=true returns true for valid index', async () => {
+    const cellProvider: InfiniteScrollerCellProviderInterface = {
+      cellForIndex: (index: number): TemplateResult | undefined =>
+        html`<div>cell-${index}</div>`,
+    };
+    const el = await fixture<InfiniteScroller>(
+      html`<infinite-scroller
+        .itemCount=${1000}
+        .cellProvider=${cellProvider}
+      ></infinite-scroller>`
+    );
+
+    await el.bufferStabilized;
+
+    const result = await el.scrollToCell(500, true);
+    expect(result).to.be.true;
+  });
+
+  it('survives disconnect and reconnect without errors', async () => {
+    const cellProvider: InfiniteScrollerCellProviderInterface = {
+      cellForIndex: (index: number): TemplateResult | undefined =>
+        html`<div>cell-${index}</div>`,
+    };
+    const el = await fixture<InfiniteScroller>(
+      html`<infinite-scroller
+        .itemCount=${100}
+        .cellProvider=${cellProvider}
+      ></infinite-scroller>`
+    );
+
+    await el.bufferStabilized;
+
+    const cellsBefore =
+      el.shadowRoot?.querySelectorAll('.cell-container').length ?? 0;
+    expect(cellsBefore).to.be.greaterThan(0);
+
+    // Remove from DOM (triggers disconnectedCallback)
+    const parent = el.parentElement!;
+    parent.removeChild(el);
+
+    // Wait a tick to let any pending rAFs/timers fire
+    await promisedSleep(50);
+
+    // Re-append (triggers connectedCallback)
+    parent.appendChild(el);
+    await el.updateComplete;
+    await promisedSleep(50);
+
+    // Should still have rendered cells
+    const cellsAfter =
+      el.shadowRoot?.querySelectorAll('.cell-container').length ?? 0;
+    expect(cellsAfter).to.be.greaterThan(0);
   });
 });
