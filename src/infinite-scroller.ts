@@ -202,6 +202,8 @@ export class InfiniteScroller
 
   private scrollIdleTimer = 0;
 
+  private scrollToCellInProgress = false;
+
   private scrollListenersActive = false;
 
   /**
@@ -312,6 +314,7 @@ export class InfiniteScroller
     this.placeholderRowHeight = undefined;
     this.sentinelEventPending = false;
     this.sentinelIsIntersecting = false;
+    this.scrollToCellInProgress = false;
     this.totalContentHeight = 0;
     this.bufferOffsetY = 0;
     this.bufferStart = 0;
@@ -380,6 +383,20 @@ export class InfiniteScroller
       return true;
     }
 
+    // We don't want to handle all scroll events normally while we're animating
+    // a scroll to a cell, so flag it for now.
+    this.scrollToCellInProgress = true;
+
+    // Cancel any pending scroll idle timer
+    if (this.scrollRafId) {
+      cancelAnimationFrame(this.scrollRafId);
+      this.scrollRafId = 0;
+    }
+    if (this.scrollIdleTimer) {
+      clearTimeout(this.scrollIdleTimer);
+      this.scrollIdleTimer = 0;
+    }
+
     // Shift buffer to include the target, estimating the strut heights
     const sc = this.getScrollContainer();
     const viewportHeight = this.isDocumentScroller(sc)
@@ -399,18 +416,24 @@ export class InfiniteScroller
     // to match based on the correct positions, and scroll the targeted cell into
     // view accurately.
     await this.updateComplete;
-    requestAnimationFrame(async () => {
-      this.measureBufferedCells();
-      this.updateScrollGeometry();
-      this.requestUpdate();
-      await this.updateComplete;
-      const targetCell = this.cellContainerForIndex(index);
-      if (targetCell) {
-        targetCell.scrollIntoView({ behavior });
-      }
-    });
+    return new Promise(resolve => {
+      requestAnimationFrame(async () => {
+        this.measureBufferedCells();
+        this.updateScrollGeometry();
+        this.requestUpdate();
+        await this.updateComplete;
 
-    return true;
+        this.scrollToCellInProgress = false;
+
+        const targetCell = this.cellContainerForIndex(index);
+        if (targetCell) {
+          targetCell.scrollIntoView({ behavior });
+          resolve(true);
+        } else {
+          resolve(false);
+        }
+      });
+    });
   }
 
   /** @inheritdoc */
@@ -446,7 +469,7 @@ export class InfiniteScroller
     ) {
       this.processVisibleCells();
       this.setupVirtualizedObservations();
-      if (!this.scrollRafId) {
+      if (!this.scrollRafId && !this.scrollToCellInProgress) {
         this.scrollRafId = requestAnimationFrame(() => {
           this.scrollRafId = 0;
           this.computeBufferFromScroll();
@@ -646,6 +669,7 @@ export class InfiniteScroller
    * Event handler for passive scroll events, throttled to minimize unnecessary updates.
    */
   private handleScroll = (): void => {
+    if (this.scrollToCellInProgress) return;
     if (!this.scrollRafId) {
       this.scrollRafId = requestAnimationFrame(() => {
         this.scrollRafId = 0;
@@ -756,9 +780,9 @@ export class InfiniteScroller
       heightSoFar += rowHeight + rowGap;
     }
 
-    const visibleRows = lastVisibleRow - firstVisibleRow + 1;
     const minBufferRows = Math.ceil(this.bufferSize / cols);
-    const proportionalRows = Math.ceil(visibleRows * this.bufferMultiplier);
+    const numVisibleRows = lastVisibleRow - firstVisibleRow + 1;
+    const proportionalRows = Math.ceil(numVisibleRows * this.bufferMultiplier);
     const bufferRows = Math.max(minBufferRows, proportionalRows);
 
     // Skip recentering if current buffer still has adequate margin (since otherwise
@@ -775,8 +799,40 @@ export class InfiniteScroller
       return;
     }
 
-    const newStartRow = Math.max(0, firstVisibleRow - bufferRows);
-    const newEndRow = Math.min(totalRows - 1, lastVisibleRow + bufferRows);
+    // Since placeholder rows may be sized differently from fully-rendered ones,
+    // walk the visible rows to determine a more fine-grained buffer px size so
+    // that the buffer can be resized accordingly without blank spaces.
+    const minBufferPx = viewportHeight * Math.max(1, this.bufferMultiplier);
+
+    let newStartRow = firstVisibleRow;
+    let startPx = 0;
+    while (newStartRow > 0 && startPx < minBufferPx) {
+      newStartRow -= 1;
+      startPx +=
+        (this.rowHeights.get(newStartRow) ??
+          this.placeholderRowHeight ??
+          this.defaultRowHeight) + rowGap;
+    }
+
+    let newEndRow = lastVisibleRow;
+    let endPx = 0;
+    while (newEndRow < totalRows - 1 && endPx < minBufferPx) {
+      newEndRow += 1;
+      endPx +=
+        (this.rowHeights.get(newEndRow) ??
+          this.placeholderRowHeight ??
+          this.defaultRowHeight) + rowGap;
+    }
+
+    // Apply count-based floor from bufferSize
+    newStartRow = Math.min(
+      newStartRow,
+      Math.max(0, firstVisibleRow - minBufferRows)
+    );
+    newEndRow = Math.max(
+      newEndRow,
+      Math.min(totalRows - 1, lastVisibleRow + minBufferRows)
+    );
 
     const newStart = newStartRow * cols;
     const newEnd = Math.min((newEndRow + 1) * cols - 1, this.itemCount - 1);
