@@ -309,6 +309,7 @@ export class InfiniteScroller
     this.placeholderCellIndices.clear();
     this.cellHeights.clear();
     this.rowHeights.clear();
+
     this.measuredRowHeightSum = 0;
     this.measuredRowHeightCount = 0;
     this.placeholderRowHeight = undefined;
@@ -318,18 +319,22 @@ export class InfiniteScroller
     this.totalContentHeight = 0;
     this.bufferOffsetY = 0;
     this.bufferStart = 0;
+
     const estimatedVisibleRows = Math.ceil(
       window.innerHeight / this.defaultRowHeight
     );
+
     const minBuffer = this.bufferSize * 2;
     const proportionalBuffer =
       estimatedVisibleRows *
       (1 + this.bufferMultiplier * 2) *
       this.cachedColumnsPerRow;
+
     this.bufferEnd = Math.min(
       Math.max(minBuffer, proportionalBuffer),
       this.itemCount - 1
     );
+
     this.updateScrollGeometry();
     this.setupObservations();
     // Re-observe the sentinel so it can fire again with a clean state
@@ -398,10 +403,10 @@ export class InfiniteScroller
     }
 
     // Shift buffer to include the target, estimating the strut heights
-    const sc = this.getScrollContainer();
-    const viewportHeight = this.isDocumentScroller(sc)
+    const container = this.getScrollContainer();
+    const viewportHeight = this.isDocumentScroller(container)
       ? window.innerHeight
-      : sc.clientHeight;
+      : container.clientHeight;
     const cols = this.cachedColumnsPerRow;
     const visibleRows = Math.ceil(viewportHeight / this.defaultRowHeight);
     const minBufferRows = Math.ceil(this.bufferSize / cols);
@@ -504,8 +509,8 @@ export class InfiniteScroller
 
   private setupScrollListener(): void {
     this.teardownScrollListener();
-    const sc = this.getScrollContainer();
-    const target = this.isDocumentScroller(sc) ? window : sc;
+    const container = this.getScrollContainer();
+    const target = this.isDocumentScroller(container) ? window : container;
     target.addEventListener('scroll', this.handleScroll, { passive: true });
     this.scrollListenersActive = true;
   }
@@ -724,7 +729,7 @@ export class InfiniteScroller
     // rendered since the cells were created
     this.measureBufferedCells();
 
-    const scroller = this.getScrollContainer();
+    const scrollContainer = this.getScrollContainer();
     if (!this.container) return;
 
     const cols = this.cachedColumnsPerRow;
@@ -735,21 +740,21 @@ export class InfiniteScroller
     // Determine visible viewport relative to the content area
     let scrollTop: number;
     let viewportHeight: number;
-    if (this.isDocumentScroller(scroller)) {
+    if (this.isDocumentScroller(scrollContainer)) {
       scrollTop = window.scrollY;
       viewportHeight = window.innerHeight;
     } else {
-      scrollTop = scroller.scrollTop;
-      viewportHeight = scroller.clientHeight;
+      scrollTop = scrollContainer.scrollTop;
+      viewportHeight = scrollContainer.clientHeight;
     }
 
     const rectElement = this.scrollSpacer ?? this.container;
     const spacerRect = rectElement.getBoundingClientRect();
-    const containerTopInScroller = this.isDocumentScroller(scroller)
+    const containerTopInScroller = this.isDocumentScroller(scrollContainer)
       ? spacerRect.top + window.scrollY
       : spacerRect.top +
-        scroller.scrollTop -
-        scroller.getBoundingClientRect().top;
+        scrollContainer.scrollTop -
+        scrollContainer.getBoundingClientRect().top;
 
     const relativeScrollTop = scrollTop - containerTopInScroller;
     const relativeScrollBottom = relativeScrollTop + viewportHeight;
