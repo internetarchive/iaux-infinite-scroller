@@ -26,6 +26,12 @@ export class AppRoot
 
   private loadedCells = new Set();
 
+  /**
+   * Indices that have a pending placeholder-replacement timer queued, just
+   * so we don't make extra setTimeout calls on them.
+   */
+  private pendingCells = new Set<number>();
+
   private showTile(design: '1' | '2') {
     this.tileDesign = design;
     this.infiniteScroller.refreshAllVisibleCells();
@@ -47,12 +53,16 @@ export class AppRoot
   cellForIndex(index: number): TemplateResult | undefined {
     const usingPlaceholders = this.placeholdersCheckbox.checked;
     if (usingPlaceholders && !this.loadedCells.has(index)) {
-      setTimeout(() => {
-        if (!this.loadedCells.has(index)) {
-          this.loadedCells.add(index);
-          this.infiniteScroller.refreshCell(index);
-        }
-      }, 1000);
+      if (!this.pendingCells.has(index)) {
+        this.pendingCells.add(index);
+        setTimeout(() => {
+          this.pendingCells.delete(index);
+          if (!this.loadedCells.has(index)) {
+            this.loadedCells.add(index);
+            this.infiniteScroller.refreshCell(index);
+          }
+        }, 1000);
+      }
       return undefined;
     }
 
