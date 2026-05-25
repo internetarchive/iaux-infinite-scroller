@@ -21,6 +21,10 @@ import {
   findScrollContainer,
   isDocumentScroller,
 } from './internal/scroll-container-utils';
+import {
+  INITIAL_ROW_HEIGHT,
+  RowHeightCache,
+} from './internal/row-height-cache';
 
 export interface InfiniteScrollerCellProviderInterface {
   cellForIndex(index: number): TemplateResult | undefined;
@@ -132,12 +136,6 @@ export type CellSelectionDetails = {
   originalEvent: Event;
 };
 
-/**
- * A value to initially size rows before anything is known about their
- * actual heights.
- */
-const INITIAL_ROW_HEIGHT = 300;
-
 @customElement('infinite-scroller')
 export class InfiniteScroller
   extends LitElement
@@ -193,15 +191,45 @@ export class InfiniteScroller
 
   // ===== Geometry / layout state =====
 
-  private cachedColumnsPerRow = 1;
+  /**
+   * Owns the cell-height / row-height tracking and the `rowHeights.get(r)
+   * ?? placeholderRowHeight ?? defaultRowHeight` fallback chain. Host-side
+   * delegating getters below preserve test compatibility — tests poke
+   * `(el as any).rowHeights`, `.cellHeights`, etc.
+   */
+  private rowHeightCache = new RowHeightCache(INITIAL_ROW_HEIGHT);
 
-  private defaultRowHeight = INITIAL_ROW_HEIGHT;
+  private get cachedColumnsPerRow(): number {
+    return this.rowHeightCache.columnsPerRow;
+  }
 
-  private cellHeights = new Map<number, number>();
+  private set cachedColumnsPerRow(n: number) {
+    this.rowHeightCache.columnsPerRow = n;
+  }
 
-  private rowHeights = new Map<number, number>();
+  private get defaultRowHeight(): number {
+    return this.rowHeightCache.defaultRowHeight;
+  }
 
-  private placeholderRowHeight: number | undefined;
+  private set defaultRowHeight(h: number) {
+    this.rowHeightCache.defaultRowHeight = h;
+  }
+
+  private get cellHeights(): ReadonlyMap<number, number> {
+    return this.rowHeightCache.cellHeights;
+  }
+
+  private get rowHeights(): ReadonlyMap<number, number> {
+    return this.rowHeightCache.rowHeights;
+  }
+
+  private get placeholderRowHeight(): number | undefined {
+    return this.rowHeightCache.placeholderRowHeight;
+  }
+
+  private set placeholderRowHeight(h: number | undefined) {
+    this.rowHeightCache.placeholderRowHeight = h;
+  }
 
   private totalContentHeight = 0;
 
@@ -434,10 +462,7 @@ export class InfiniteScroller
     this.renderedCellIndices.clear();
     this.visibleCellIndices.clear();
     this.placeholderCellIndices.clear();
-    this.cellHeights.clear();
-    this.rowHeights.clear();
-
-    this.placeholderRowHeight = undefined;
+    this.rowHeightCache.clear();
     this.sentinelEventPending = false;
     this.sentinelIsIntersecting = false;
     this.scrollToCellInProgress = false;
@@ -470,8 +495,8 @@ export class InfiniteScroller
         // Just clean up tracking — no DOM element to clear
         this.renderedCellIndices.delete(index);
         this.placeholderCellIndices.delete(index);
-        if (this.cellHeights.delete(index)) {
-          this.rebuildRowHeightsFromCellHeights();
+        if (this.rowHeightCache.deleteCellHeight(index)) {
+          this.rowHeightCache.recalculateAllRowHeights();
           this.scheduleScrollLayoutUpdate();
         }
         return;
@@ -817,72 +842,6 @@ export class InfiniteScroller
   }
 
   /**
-   * Updates the saved height of the given cell and recomputes its row's height
-   * as the max over all measured cells in that row. We need max-over-cells
-   * (not a monotone-up ratchet) so the row height shrinks back down when a
-   * tall placeholder is replaced by shorter content.
-   */
-  private recordCellHeight(cellIndex: number, height: number): void {
-    this.cellHeights.set(cellIndex, height);
-    this.updateRowHeightFromCells(
-      Math.floor(cellIndex / this.cachedColumnsPerRow)
-    );
-  }
-
-  /**
-   * Recomputes the cached height for `row` as the max over all currently
-   * measured cells in that row. Removes the entry if no cells are measured.
-   */
-  private updateRowHeightFromCells(row: number): void {
-    const cols = this.cachedColumnsPerRow;
-    const firstCellInRow = row * cols;
-    let maxHeight = 0;
-    for (let c = 0; c < cols; c += 1) {
-      const h = this.cellHeights.get(firstCellInRow + c);
-      if (h !== undefined && h > maxHeight) maxHeight = h;
-    }
-    if (maxHeight > 0) {
-      this.rowHeights.set(row, maxHeight);
-    } else {
-      this.rowHeights.delete(row);
-    }
-  }
-
-  /**
-   * Refreshes the heights of all rows, for instance because of a change in
-   * the grid parameters or a resize.
-   */
-  private rebuildRowHeightsFromCellHeights(): void {
-    this.rowHeights.clear();
-    const rowsToUpdate = new Set<number>();
-    for (const cellIndex of this.cellHeights.keys()) {
-      rowsToUpdate.add(Math.floor(cellIndex / this.cachedColumnsPerRow));
-    }
-    rowsToUpdate.forEach(r => this.updateRowHeightFromCells(r));
-  }
-
-  /**
-   * Sums the (estimated or measured) heights of all rows in the inclusive
-   * range `[startRow, endRow]`, plus the row gaps between them. Used to
-   * compute both the total scroll-spacer height (sum across all rows)
-   * and the buffer transform offset (sum across the rows preceding the
-   * buffer's first row). Returns 0 when the range is empty.
-   */
-  private sumRowHeights(startRow: number, endRow: number): number {
-    if (endRow < startRow) return 0;
-    const { rowGap } = this;
-    let total = 0;
-    for (let r = startRow; r <= endRow; r += 1) {
-      total +=
-        this.rowHeights.get(r) ??
-        this.placeholderRowHeight ??
-        this.defaultRowHeight;
-    }
-    total += Math.max(0, endRow - startRow) * rowGap;
-    return total;
-  }
-
-  /**
    * Recompute the two derived scroll-layout values that depend on the
    * current per-row height estimates:
    *  - `totalContentHeight`: the height the scroll spacer needs to be
@@ -903,7 +862,12 @@ export class InfiniteScroller
       this.bufferOffsetY = 0;
       return;
     }
-    this.totalContentHeight = this.sumRowHeights(0, totalRows - 1);
+    const { rowGap } = this;
+    this.totalContentHeight = this.rowHeightCache.sumRowHeights(
+      0,
+      totalRows - 1,
+      rowGap
+    );
     const bufferStartRow = Math.floor(
       this.bufferStart / this.cachedColumnsPerRow
     );
@@ -911,7 +875,8 @@ export class InfiniteScroller
     // Row k's top edge is at sum(heights) + k*rowGap, so add one rowGap.
     this.bufferOffsetY =
       bufferStartRow > 0
-        ? this.sumRowHeights(0, bufferStartRow - 1) + this.rowGap
+        ? this.rowHeightCache.sumRowHeights(0, bufferStartRow - 1, rowGap) +
+          rowGap
         : 0;
   }
 
@@ -1084,7 +1049,7 @@ export class InfiniteScroller
       if (indexStr) {
         const index = parseInt(indexStr, 10);
         if (this.renderedCellIndices.has(index) && cell.offsetHeight > 0) {
-          this.recordCellHeight(index, cell.offsetHeight);
+          this.rowHeightCache.recordCellHeight(index, cell.offsetHeight);
         }
       }
     }
@@ -1151,17 +1116,6 @@ export class InfiniteScroller
     // estimate rather than overwriting with an inflated mixed-row value.
   }
 
-  /**
-   * Updates the "default" row height used as an estimate to match the average
-   * height of all known, measured rows.
-   */
-  private updateDefaultRowHeightFromMeasured(): void {
-    if (this.rowHeights.size === 0) return;
-    let sum = 0;
-    for (const h of this.rowHeights.values()) sum += h;
-    this.defaultRowHeight = sum / this.rowHeights.size;
-  }
-
   private computeBufferFromScroll(): void {
     // Need to re-measure heights of buffered cells, since child components may have
     // rendered since the cells were created
@@ -1204,10 +1158,7 @@ export class InfiniteScroller
     let foundFirst = false;
 
     for (let r = 0; r < totalRows; r += 1) {
-      const rowHeight =
-        this.rowHeights.get(r) ??
-        this.placeholderRowHeight ??
-        this.defaultRowHeight;
+      const rowHeight = this.rowHeightCache.rowHeightFor(r);
       const rowTop = heightSoFar;
       const rowBottom = heightSoFar + rowHeight;
 
@@ -1251,20 +1202,14 @@ export class InfiniteScroller
     let startPx = 0;
     while (newStartRow > 0 && startPx < minBufferPx) {
       newStartRow -= 1;
-      startPx +=
-        (this.rowHeights.get(newStartRow) ??
-          this.placeholderRowHeight ??
-          this.defaultRowHeight) + rowGap;
+      startPx += this.rowHeightCache.rowHeightFor(newStartRow) + rowGap;
     }
 
     let newEndRow = lastVisibleRow;
     let endPx = 0;
     while (newEndRow < totalRows - 1 && endPx < minBufferPx) {
       newEndRow += 1;
-      endPx +=
-        (this.rowHeights.get(newEndRow) ??
-          this.placeholderRowHeight ??
-          this.defaultRowHeight) + rowGap;
+      endPx += this.rowHeightCache.rowHeightFor(newEndRow) + rowGap;
     }
 
     // Apply count-based floor from minBufferSize
@@ -1301,7 +1246,7 @@ export class InfiniteScroller
       // visible "snap back / snap forward" jumps. The estimate is reset only
       // on reload() or column-count change (where it is genuinely invalid).
       if (this.rowHeights.size > 0) {
-        this.updateDefaultRowHeightFromMeasured();
+        this.rowHeightCache.recalculateDefaultRowHeight();
       }
       this.bufferStart = newStart;
       this.bufferEnd = newEnd;
@@ -1341,12 +1286,12 @@ export class InfiniteScroller
         if (newCols !== this.cachedColumnsPerRow) {
           this.cachedColumnsPerRow = newCols;
           this.placeholderRowHeight = undefined;
-          this.rebuildRowHeightsFromCellHeights();
+          this.rowHeightCache.recalculateAllRowHeights();
           this.updateScrollLayout();
           this.computeBufferFromScroll();
         }
         if (this.rowHeights.size > 0) {
-          this.updateDefaultRowHeightFromMeasured();
+          this.rowHeightCache.recalculateDefaultRowHeight();
         } else {
           this.defaultRowHeight = this.computeDefaultRowHeight();
         }
@@ -1373,7 +1318,7 @@ export class InfiniteScroller
     // the buffer to fill the viewport accurately.
     requestAnimationFrame(() => {
       this.measureBufferedCells();
-      this.updateDefaultRowHeightFromMeasured();
+      this.rowHeightCache.recalculateDefaultRowHeight();
       this.computeBufferFromScroll();
       this.updateComplete.then(() => {
         this.endStabilization();
@@ -1395,10 +1340,8 @@ export class InfiniteScroller
     for (const index of this.placeholderCellIndices) {
       if (index >= this.itemCount) this.placeholderCellIndices.delete(index);
     }
-    for (const index of this.cellHeights.keys()) {
-      if (index >= this.itemCount) this.cellHeights.delete(index);
-    }
-    this.rebuildRowHeightsFromCellHeights();
+    this.rowHeightCache.pruneAtOrAbove(this.itemCount);
+    this.rowHeightCache.recalculateAllRowHeights();
   }
 
   /**
@@ -1637,8 +1580,8 @@ export class InfiniteScroller
         // rendering now (a placeholder) instead of the stale content
         // measurement, which would otherwise inflate the scroll spacer
         // and buffer offset.
-        if (this.cellHeights.delete(index)) {
-          this.updateRowHeightFromCells(
+        if (this.rowHeightCache.deleteCellHeight(index)) {
+          this.rowHeightCache.recalculateRowHeight(
             Math.floor(index / this.cachedColumnsPerRow)
           );
         }
@@ -1682,8 +1625,8 @@ export class InfiniteScroller
     }
     this.renderedCellIndices.delete(index);
     this.placeholderCellIndices.delete(index);
-    if (this.cellHeights.delete(index)) {
-      this.rebuildRowHeightsFromCellHeights();
+    if (this.rowHeightCache.deleteCellHeight(index)) {
+      this.rowHeightCache.recalculateAllRowHeights();
     }
   }
 
