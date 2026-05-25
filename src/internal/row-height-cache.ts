@@ -1,30 +1,16 @@
 /**
  * Initial fallback height in pixels, used before any real cell measurements
- * are available. Picked to over-estimate (rather than under-estimate) since
- * an underestimated spacer produces a too-short scrollbar that the user
- * could scroll past.
+ * are available. Picked to over- rather than under-estimate, so that we don't
+ * end up with a too-short scrollbar.
  */
 export const INITIAL_ROW_HEIGHT = 300;
 
 /**
- * Encapsulates the cell- and row-height tracking and the height-fallback
- * chain used by the virtualized scroller. Owns five pieces of state:
- *
- *  - `cellHeights`: measured pixel heights of individual buffered cells
- *  - `rowHeights`: per-row maximum cell height (derived from `cellHeights`)
- *  - `placeholderRowHeight`: average height of pure-placeholder rows
- *  - `defaultRowHeight`: fallback estimate used when no measurement exists
- *  - `columnsPerRow`: needed to map between cell index and row index
- *
- * The fallback chain (`rowHeights[r] → placeholderRowHeight → defaultRowHeight`)
- * lives in exactly one place: `rowHeightFor()`. All other consumers go through
- * it, eliminating the previously-duplicated lookup in 5+ host call sites.
- *
- * The cache exposes its internal `Map`s through readonly getters so that
- * the host class's tests can still poke `(el as any).rowHeights.get(r)` and
- * `(el as any).cellHeights.size` directly without breaking. The returned
- * values ARE the live `Map` instances (typed as `ReadonlyMap`), so reads
- * always reflect current state.
+ * Encapsulates the cell- and row-height tracking for the virtualized scroller.
+ * Can be used to record cell heights whenever they change, and calculate (or
+ * estimate) the corresponding row heights based on the maximum cell height in
+ * each row. The estimates automatically fall back to measured placeholder height
+ * or the given default row height as needed.
  */
 export class RowHeightCache {
   private _cellHeights = new Map<number, number>();
@@ -37,22 +23,21 @@ export class RowHeightCache {
 
   private _columnsPerRow = 1;
 
-  constructor(initialDefaultRowHeight: number = INITIAL_ROW_HEIGHT) {
+  constructor(initialDefaultRowHeight = INITIAL_ROW_HEIGHT) {
     this._defaultRowHeight = initialDefaultRowHeight;
   }
 
   /**
-   * Live readonly view of the per-cell height map. Mutations must go
-   * through the cache's methods (`recordCellHeight`, `deleteCellHeight`,
-   * `clear`, `pruneAtOrAbove`).
+   * Live readonly view of the per-cell height map. To change cell heights, use
+   * other methods like `recordCellHeight` and `deleteCellHeight`.
    */
   get cellHeights(): ReadonlyMap<number, number> {
     return this._cellHeights;
   }
 
   /**
-   * Live readonly view of the per-row height map. Mutations must go
-   * through `recordCellHeight`, `recalculateRowHeight`, `recalculateAllRowHeights`, or `clear`.
+   * Live readonly view of the per-row height map. To update row heights from
+   * their cells, use `recalculateRowHeight` or `recalculateAllRowHeights`.
    */
   get rowHeights(): ReadonlyMap<number, number> {
     return this._rowHeights;
@@ -62,30 +47,32 @@ export class RowHeightCache {
     return this._columnsPerRow;
   }
 
-  set columnsPerRow(n: number) {
-    this._columnsPerRow = n;
+  set columnsPerRow(numCols: number) {
+    this._columnsPerRow = numCols;
   }
 
   get defaultRowHeight(): number {
     return this._defaultRowHeight;
   }
 
-  set defaultRowHeight(h: number) {
-    this._defaultRowHeight = h;
+  set defaultRowHeight(newHeight: number) {
+    this._defaultRowHeight = newHeight;
   }
 
   get placeholderRowHeight(): number | undefined {
     return this._placeholderRowHeight;
   }
 
-  set placeholderRowHeight(h: number | undefined) {
-    this._placeholderRowHeight = h;
+  set placeholderRowHeight(newHeight: number | undefined) {
+    this._placeholderRowHeight = newHeight;
   }
 
   /**
-   * Single source of the height-fallback chain: prefer the measured row
-   * height, fall back to the placeholder estimate, then to the default.
-   * Every consumer of "what height should I assume for row r?" calls this.
+   * Returns the measured height of the given row if available in the cache,
+   * or falls back to either the placeholder estimate or the default row height
+   * otherwise.
+   *
+   * @param row Row index to get the height of
    */
   rowHeightFor(row: number): number {
     return (
@@ -97,16 +84,21 @@ export class RowHeightCache {
 
   /**
    * Sums the (estimated or measured) heights of all rows in the inclusive
-   * range `[startRow, endRow]`, plus the row gaps between them. Used to
-   * compute both the total scroll-spacer height (sum across all rows) and
-   * the buffer transform offset (sum across rows preceding the buffer's
-   * first row). Returns 0 when the range is empty.
+   * range `[startRow, endRow]`, plus (optionally) any row gap between them.
+   * Can therefore be used to calculate either the total scroll-spacer height
+   * (sum across all rows) or a smaller range (e.g., everything preceding the
+   * buffer's first row) as needed. Returns 0 when the range is empty.
+   *
+   * @param startRow The first row to include in the sum
+   * @param endRow The last row to include in the sum
+   * @param rowGap An optional row gap to include in the height sum between
+   * all included rows. Defaults to 0 if not provided.
    */
-  sumRowHeights(startRow: number, endRow: number, rowGap: number): number {
+  sumRowHeights(startRow: number, endRow: number, rowGap = 0): number {
     if (endRow < startRow) return 0;
     let total = 0;
-    for (let r = startRow; r <= endRow; r += 1) {
-      total += this.rowHeightFor(r);
+    for (let row = startRow; row <= endRow; row += 1) {
+      total += this.rowHeightFor(row);
     }
     total += Math.max(0, endRow - startRow) * rowGap;
     return total;
@@ -114,9 +106,10 @@ export class RowHeightCache {
 
   /**
    * Records the measured height of a cell and recomputes its row's height
-   * as the max over all measured cells in that row. We use max-over-cells
-   * (not a monotone-up ratchet) so the row height shrinks back down when
-   * a tall placeholder is replaced by shorter content.
+   * as the max over all measured cells in that row.
+   *
+   * @param cellIndex The index of the cell to record a height for
+   * @param height The new cell height to record
    */
   recordCellHeight(cellIndex: number, height: number): void {
     this._cellHeights.set(cellIndex, height);
@@ -125,9 +118,11 @@ export class RowHeightCache {
 
   /**
    * Deletes the cellHeights entry for `cellIndex`. Returns true if the
-   * entry was present. Callers decide whether to follow up with
-   * `recalculateRowHeight()` or `recalculateAllRowHeights()` to reflect the deletion in the
-   * row map.
+   * entry was present. Callers may decide whether to follow up with
+   * `recalculateRowHeight()` or `recalculateAllRowHeights()` to reflect
+   * the deletion in the row map.
+   *
+   * @param cellIndex The index of the cell to delete
    */
   deleteCellHeight(cellIndex: number): boolean {
     return this._cellHeights.delete(cellIndex);
@@ -137,14 +132,17 @@ export class RowHeightCache {
    * Recomputes the cached height for `row` as the max over currently
    * measured cells in that row. Removes the row entry if no cells in
    * that row are measured.
+   *
+   * @param row The index of the row to recalculate the height of
    */
   recalculateRowHeight(row: number): void {
     const cols = this._columnsPerRow;
     const firstCellInRow = row * cols;
     let maxHeight = 0;
-    for (let c = 0; c < cols; c += 1) {
-      const h = this._cellHeights.get(firstCellInRow + c);
-      if (h !== undefined && h > maxHeight) maxHeight = h;
+    for (let col = 0; col < cols; col += 1) {
+      const cellHeight = this._cellHeights.get(firstCellInRow + col);
+      if (cellHeight !== undefined && cellHeight > maxHeight)
+        maxHeight = cellHeight;
     }
     if (maxHeight > 0) {
       this._rowHeights.set(row, maxHeight);
@@ -168,20 +166,22 @@ export class RowHeightCache {
 
   /**
    * Updates the default row height to match the average of all currently
-   * measured rows. No-op if no rows have been measured yet.
+   * measured rows. Does nothing if no rows have been measured yet.
    */
   recalculateDefaultRowHeight(): void {
     if (this._rowHeights.size === 0) return;
     let sum = 0;
-    for (const h of this._rowHeights.values()) sum += h;
+    for (const rowHeight of this._rowHeights.values()) sum += rowHeight;
     this._defaultRowHeight = sum / this._rowHeights.size;
   }
 
   /**
    * Drops every `cellHeights` entry whose index is `>= cutoff`. Used to
    * clean up after `itemCount` shrinks. Caller is responsible for calling
-   * `recalculateAllRowHeights()` afterward to reflect the dropped cells in the row
-   * map.
+   * `recalculateAllRowHeights()` afterward to reflect the dropped cells in
+   * the row height map.
+   *
+   * @param cutoff The index of the first cell whose height should be pruned
    */
   pruneAtOrAbove(cutoff: number): void {
     for (const index of this._cellHeights.keys()) {
@@ -191,8 +191,7 @@ export class RowHeightCache {
 
   /**
    * Clears all measured state (cellHeights + rowHeights) and resets the
-   * placeholder-row estimate. Default row height is preserved — it is set
-   * separately, typically from `computeDefaultRowHeight()` on the host.
+   * placeholder-row estimate. Default row height is preserved.
    */
   clear(): void {
     this._cellHeights.clear();
