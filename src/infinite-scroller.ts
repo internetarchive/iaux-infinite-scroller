@@ -17,6 +17,10 @@ import {
 } from 'lit/decorators.js';
 import { repeat } from 'lit/directives/repeat.js';
 import { generateRange } from './range-generator';
+import {
+  findScrollContainer,
+  isDocumentScroller,
+} from './internal/scroll-container-utils';
 
 export interface InfiniteScrollerCellProviderInterface {
   cellForIndex(index: number): TemplateResult | undefined;
@@ -541,7 +545,7 @@ export class InfiniteScroller
     // misalignment that the next computeBufferFromScroll would correct
     // with a visible jump.
     const container = this.getScrollContainer();
-    const viewportHeight = this.isDocumentScroller(container)
+    const viewportHeight = isDocumentScroller(container)
       ? window.innerHeight
       : container.clientHeight;
     const cols = this.cachedColumnsPerRow;
@@ -593,9 +597,7 @@ export class InfiniteScroller
         // of the target. Wait for scrollend (preferred) or a fallback
         // timer (for browsers without scrollend).
         const scrollContainer = this.getScrollContainer();
-        const eventTarget: EventTarget = this.isDocumentScroller(
-          scrollContainer
-        )
+        const eventTarget: EventTarget = isDocumentScroller(scrollContainer)
           ? window
           : scrollContainer;
         let fallbackId = 0;
@@ -713,7 +715,7 @@ export class InfiniteScroller
   private setupScrollListener(): void {
     this.teardownScrollListener();
     const container = this.getScrollContainer();
-    const target = this.isDocumentScroller(container) ? window : container;
+    const target = isDocumentScroller(container) ? window : container;
     target.addEventListener('scroll', this.handleScroll, { passive: true });
     this.scrollListenersActive = true;
   }
@@ -721,7 +723,7 @@ export class InfiniteScroller
   private teardownScrollListener(): void {
     if (!this.scrollListenersActive) return;
     if (this.scrollContainer) {
-      const target = this.isDocumentScroller(this.scrollContainer)
+      const target = isDocumentScroller(this.scrollContainer)
         ? window
         : this.scrollContainer;
       target.removeEventListener('scroll', this.handleScroll);
@@ -740,15 +742,6 @@ export class InfiniteScroller
       this.scrollIdleTimer = 0;
     }
     this.scrollListenersActive = false;
-  }
-
-  /**
-   * Whether the given element is the document-level scroller.
-   */
-  private isDocumentScroller(elmt: Element): boolean {
-    return (
-      elmt === document.scrollingElement || elmt === document.documentElement
-    );
   }
 
   /**
@@ -812,22 +805,14 @@ export class InfiniteScroller
   }
 
   /**
-   * Finds and returns the nearest scrolling container in this component's ancestry.
+   * Finds and returns the nearest scrolling container in this component's
+   * ancestry, caching the result. The cache is cleared in
+   * `disconnectedCallback`/`connectedCallback` because the DOM ancestor
+   * chain may differ across attachments.
    */
   private getScrollContainer(): Element {
     if (this.scrollContainer) return this.scrollContainer;
-    let el: Element | null = this;
-    while (el) {
-      el = el.parentElement;
-      if (!el) break;
-      const { overflowY } = getComputedStyle(el);
-      if (overflowY === 'auto' || overflowY === 'scroll') {
-        this.scrollContainer = el;
-        return el;
-      }
-    }
-    this.scrollContainer =
-      document.scrollingElement ?? document.documentElement;
+    this.scrollContainer = findScrollContainer(this);
     return this.scrollContainer;
   }
 
@@ -977,7 +962,7 @@ export class InfiniteScroller
     if (!this.isVirtualized) return null;
     if (this.scrollToCellInProgress) return null;
     const scrollContainer = this.getScrollContainer();
-    const isDoc = this.isDocumentScroller(scrollContainer);
+    const isDoc = isDocumentScroller(scrollContainer);
     const viewportTop = isDoc ? 0 : scrollContainer.getBoundingClientRect().top;
     const viewportBottom = isDoc
       ? window.innerHeight
@@ -1029,7 +1014,7 @@ export class InfiniteScroller
     // settle things.
     if (!anchor.cell.isConnected) return;
     const scrollContainer = this.getScrollContainer();
-    const isDoc = this.isDocumentScroller(scrollContainer);
+    const isDoc = isDocumentScroller(scrollContainer);
     const viewportTop = isDoc ? 0 : scrollContainer.getBoundingClientRect().top;
     const newRect = anchor.cell.getBoundingClientRect();
     const delta = newRect.top - viewportTop - anchor.viewportOffset;
@@ -1193,7 +1178,7 @@ export class InfiniteScroller
     // Determine visible viewport relative to the content area
     let scrollTop: number;
     let viewportHeight: number;
-    if (this.isDocumentScroller(scrollContainer)) {
+    if (isDocumentScroller(scrollContainer)) {
       scrollTop = window.scrollY;
       viewportHeight = window.innerHeight;
     } else {
@@ -1203,7 +1188,7 @@ export class InfiniteScroller
 
     const rectElement = this.scrollSpacer ?? this.container;
     const spacerRect = rectElement.getBoundingClientRect();
-    const containerTopInScroller = this.isDocumentScroller(scrollContainer)
+    const containerTopInScroller = isDocumentScroller(scrollContainer)
       ? spacerRect.top + window.scrollY
       : spacerRect.top +
         scrollContainer.scrollTop -
