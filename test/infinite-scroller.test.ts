@@ -1359,12 +1359,13 @@ describe('Review-finding regressions', () => {
     ).to.deep.equal([]);
   });
 
-  it('issue 23: captureScrollAnchor + restoreScrollAnchor compensate for layout shifts', async () => {
-    // Direct unit test of the scroll-anchoring helpers. The integration
-    // scenario (buffer extension during upward scroll with stale rowHeights)
-    // is hard to reproduce deterministically in wtr due to accumulated
-    // test fixtures changing the document layout. Instead we exercise the
-    // helpers directly: an anchor captured before a simulated layout
+  it('issue 23: ScrollAnchor.capture + restore compensate for layout shifts', async () => {
+    // Direct unit test of the scroll-anchoring primitives on the
+    // internal ScrollAnchor helper. The integration scenario (buffer
+    // extension during upward scroll with stale rowHeights) is hard to
+    // reproduce deterministically in wtr due to accumulated test
+    // fixtures changing the document layout. Instead we exercise the
+    // primitives directly: an anchor captured before a simulated layout
     // shift should drive a scrollTop adjustment afterward that returns
     // the anchor cell to its captured viewport position.
     const cellProvider: InfiniteScrollerCellProviderInterface = {
@@ -1385,9 +1386,9 @@ describe('Review-finding regressions', () => {
     await waitForFrame();
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anchor = (el as any).captureScrollAnchor();
-    expect(anchor, 'captureScrollAnchor should find an anchor cell').to.not.be
-      .null;
+    const { scrollAnchor } = el as any;
+    const anchor = scrollAnchor.capture();
+    expect(anchor, 'capture() should find an anchor cell').to.not.be.null;
     expect(anchor.cell, 'anchor.cell should be a .cell-container').to.exist;
     expect(anchor.cell.classList.contains('cell-container')).to.equal(true);
     expect(anchor.viewportOffset, 'viewportOffset should be a number').to.be.a(
@@ -1402,19 +1403,18 @@ describe('Review-finding regressions', () => {
     container.style.transform = `translateY(${initialBufferOffsetY - 200}px)`;
 
     // The anchor cell is now 200px higher in the viewport than where it
-    // was captured. restoreScrollAnchor should adjust scrollY by -200
-    // (scrolling up to bring the content back down so the anchor stays
-    // at its captured viewport position).
+    // was captured. restore() should adjust scrollY by -200 (scrolling
+    // up to bring the content back down so the anchor stays at its
+    // captured viewport position).
     const scrollYBefore = window.scrollY;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (el as any).restoreScrollAnchor(anchor);
+    scrollAnchor.restore(anchor);
     const scrollYAfter = window.scrollY;
     const scrollDelta = scrollYAfter - scrollYBefore;
 
     expect(
       scrollDelta,
-      `restoreScrollAnchor should have adjusted scrollY by ~-200 to ` +
-        `compensate for the 200px upward layout shift of the anchor (got ${scrollDelta}).`
+      `restore() should have adjusted scrollY by ~-200 to compensate ` +
+        `for the 200px upward layout shift of the anchor (got ${scrollDelta}).`
     ).to.be.closeTo(-200, 5);
   });
 
@@ -1540,21 +1540,20 @@ describe('Review-finding regressions', () => {
     // them in the viewport get pushed downward — the user sees the
     // content they were looking at jump down.
     //
-    // Root cause: captureScrollAnchor was called inside
+    // Root cause: ScrollAnchor.capture was called inside
     // scheduleScrollLayoutUpdate's rAF, AFTER removeCell+renderCellBuffer
     // had synchronously updated the DOM. By then, the refreshed cells
-    // were already in renderedCellIndices, so captureScrollAnchor
-    // selected the topmost newly-rendered cell as the anchor. That
-    // cell sits at the top of its (now-grown) row and didn't move
-    // relative to itself, so restoreScrollAnchor computed delta=0 —
-    // even though cells BELOW in the buffer visibly shifted down.
+    // were already in renderedCellIndices, so capture selected the
+    // topmost newly-rendered cell as the anchor. That cell sits at the
+    // top of its (now-grown) row and didn't move relative to itself, so
+    // restore computed delta=0 — even though cells BELOW in the buffer
+    // visibly shifted down.
     //
-    // Fix: capture the anchor SYNCHRONOUSLY at the start of
-    // refreshCell, before the placeholder cells are added to
-    // renderedCellIndices. captureScrollAnchor then walks past the
-    // still-placeholder cells and picks the first already-rendered
-    // cell below as anchor — which is the cell that actually shifts
-    // when above rows grow.
+    // Fix: capture the anchor SYNCHRONOUSLY at the start of refreshCell
+    // via captureIfEmpty, before the placeholder cells are added to
+    // renderedCellIndices. capture then walks past the still-placeholder
+    // cells and picks the first already-rendered cell below as anchor —
+    // which is the cell that actually shifts when above rows grow.
     const heights = new Map<number, number>();
     const cellProvider: InfiniteScrollerCellProviderInterface = {
       cellForIndex(i: number): TemplateResult | undefined {
