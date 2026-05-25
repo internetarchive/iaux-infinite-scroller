@@ -139,6 +139,8 @@ export class InfiniteScroller
   extends LitElement
   implements InfiniteScrollerInterface
 {
+  // ===== Public properties =====
+
   /** @inheritdoc */
   @property({ type: Number }) itemCount = 0;
 
@@ -164,11 +166,15 @@ export class InfiniteScroller
   /** @inheritdoc */
   @property({ type: Number }) estimatedCellHeight?: number;
 
+  // ===== Reactive state =====
+
   @state() private bufferStart = 0;
 
   @state() private bufferEnd = 0;
 
   @state() private rowGap = 0;
+
+  // ===== DOM queries =====
 
   /**
    * The sentinel is our marker to know when we need to load more data
@@ -181,12 +187,7 @@ export class InfiniteScroller
 
   @queryAll('.cell-container') private cellContainers!: HTMLDivElement[];
 
-  /**
-   * Map of rendered cell indices to their actual DOM elements in the buffer.
-   * Rebuilt whenever the buffered set changes, and allows us to avoid making
-   * repeated DOM queries in the hot path.
-   */
-  private cellContainerByIndex = new Map<number, HTMLDivElement>();
+  // ===== Geometry / layout state =====
 
   private cachedColumnsPerRow = 1;
 
@@ -205,7 +206,31 @@ export class InfiniteScroller
   private supportsGrid =
     typeof CSS !== 'undefined' && CSS.supports('display', 'grid');
 
-  private resizeObserver?: ResizeObserver;
+  // ===== Cell tracking =====
+
+  /**
+   * Map of rendered cell indices to their actual DOM elements in the buffer.
+   * Rebuilt whenever the buffered set changes, and allows us to avoid making
+   * repeated DOM queries in the hot path.
+   */
+  private cellContainerByIndex = new Map<number, HTMLDivElement>();
+
+  /**
+   * The indices of cells that have been rendered
+   */
+  private renderedCellIndices = new Set<number>();
+
+  /**
+   * The indices of cells that are visible
+   */
+  private visibleCellIndices = new Set<number>();
+
+  /**
+   * The indices of cells that have placeholders in them
+   */
+  private placeholderCellIndices = new Set<number>();
+
+  // ===== Scroll & timer state =====
 
   private scrollContainer?: Element;
 
@@ -257,20 +282,7 @@ export class InfiniteScroller
     | null
     | undefined = undefined;
 
-  /**
-   * The indices of cells that have been rendered
-   */
-  private renderedCellIndices = new Set<number>();
-
-  /**
-   * The indices of cells that are visible
-   */
-  private visibleCellIndices = new Set<number>();
-
-  /**
-   * The indices of cells that have placeholders in them
-   */
-  private placeholderCellIndices = new Set<number>();
+  // ===== Sentinel state =====
 
   private sentinelIsIntersecting = false;
 
@@ -282,6 +294,8 @@ export class InfiniteScroller
    */
   private sentinelEventPending = false;
 
+  // ===== Stabilization promise =====
+
   private bufferStabilizedResolver?: () => void;
 
   /**
@@ -292,6 +306,10 @@ export class InfiniteScroller
    * directly without a fallback.
    */
   private bufferStabilizedPromise!: Promise<void>;
+
+  // ===== Observers =====
+
+  private resizeObserver?: ResizeObserver;
 
   constructor() {
     super();
@@ -327,6 +345,42 @@ export class InfiniteScroller
   /** Whether the scroller should use its virtualized mode */
   private get isVirtualized(): boolean {
     return !this.scrollOptimizationsDisabled && this.supportsGrid;
+  }
+
+  /**
+   * Range of cell indices lying within the current virtualized buffer.
+   */
+  private get virtualBufferIndices(): number[] {
+    if (this.itemCount === 0) return [];
+    const start = Math.max(0, this.bufferStart);
+    const end = Math.min(this.bufferEnd, this.itemCount - 1);
+    if (end < start) return [];
+    return generateRange(start, end, 1);
+  }
+
+  /**
+   * An array of cell indices that need to be rendered based
+   * on the currently visible cells and the size of the buffer.
+   */
+  private get bufferRange(): number[] {
+    if (this.isVirtualized) {
+      return this.virtualBufferIndices;
+    }
+
+    const cellBufferSize = Math.max(10, this.visibleCellIndices.size);
+
+    if (this.visibleCellIndices.size === 0) {
+      return generateRange(0, cellBufferSize, 1);
+    }
+
+    const minVisibleIndex = Math.min(...this.visibleCellIndices);
+    const maxVisibleIndex = Math.max(...this.visibleCellIndices);
+    const minBufferIndex = Math.max(minVisibleIndex - cellBufferSize, 0);
+    const maxBufferIndex = Math.min(
+      maxVisibleIndex + cellBufferSize,
+      this.itemCount - 1
+    );
+    return generateRange(minBufferIndex, maxBufferIndex, 1);
   }
 
   private sentinelIntersectionObserver: IntersectionObserver =
@@ -1538,42 +1592,6 @@ export class InfiniteScroller
       this.rowGap = this.getRowGap();
       this.updateScrollLayout();
     }
-  }
-
-  /**
-   * Range of cell indices lying within the current virtualized buffer.
-   */
-  private get virtualBufferIndices(): number[] {
-    if (this.itemCount === 0) return [];
-    const start = Math.max(0, this.bufferStart);
-    const end = Math.min(this.bufferEnd, this.itemCount - 1);
-    if (end < start) return [];
-    return generateRange(start, end, 1);
-  }
-
-  /**
-   * An array of cell indices that need to be rendered based
-   * on the currently visible cells and the size of the buffer.
-   */
-  private get bufferRange(): number[] {
-    if (this.isVirtualized) {
-      return this.virtualBufferIndices;
-    }
-
-    const cellBufferSize = Math.max(10, this.visibleCellIndices.size);
-
-    if (this.visibleCellIndices.size === 0) {
-      return generateRange(0, cellBufferSize, 1);
-    }
-
-    const minVisibleIndex = Math.min(...this.visibleCellIndices);
-    const maxVisibleIndex = Math.max(...this.visibleCellIndices);
-    const minBufferIndex = Math.max(minVisibleIndex - cellBufferSize, 0);
-    const maxBufferIndex = Math.min(
-      maxVisibleIndex + cellBufferSize,
-      this.itemCount - 1
-    );
-    return generateRange(minBufferIndex, maxBufferIndex, 1);
   }
 
   /**
