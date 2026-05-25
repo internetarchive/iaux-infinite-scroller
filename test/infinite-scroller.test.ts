@@ -1173,13 +1173,13 @@ describe('Review-finding regressions', () => {
     ).to.be.lessThan(window.innerHeight / 2);
   });
 
-  it('issue 19: placeholderRowHeight reflects pure-placeholder rows, not row-mixed first sample', async () => {
+  it('issue 19: placeholderRowHeight reflects placeholder-only rows, not row-mixed first sample', async () => {
     // Cell 0 returns tall content immediately; the rest are placeholders.
     // With cols >= 2, row 0 mixes a 200px content cell with placeholder cells
     // that get inflated by the grid layout to match. The first placeholder
     // by iteration order (cell 1) is in that inflated row — so capturing
     // from it alone produces a biased ~200 estimate, even though the
-    // typical pure-placeholder row is only ~50px tall.
+    // typical placeholder-only row is only ~50px tall.
     const cellProvider: InfiniteScrollerCellProviderInterface = {
       cellForIndex: (index: number): TemplateResult | undefined =>
         index === 0
@@ -1210,7 +1210,7 @@ describe('Review-finding regressions', () => {
     expect(ph, 'placeholderRowHeight should be set').to.be.a('number');
     expect(
       ph!,
-      `placeholderRowHeight ${ph} should reflect typical pure-placeholder rows (~50)`
+      `placeholderRowHeight ${ph} should reflect typical placeholder-only rows (~50)`
     ).to.be.closeTo(50, 30);
   });
 

@@ -1059,47 +1059,21 @@ export class InfiniteScroller
 
   /**
    * Estimates the typical placeholder row height by averaging the offsetHeight
-   * of placeholders that lie in **pure-placeholder rows** (rows containing no
+   * of placeholders that lie in **placeholder-only rows** (rows containing no
    * rendered/measured siblings). Mixed rows inflate placeholder cells to the
-   * row's max, which biases a single-sample capture. By restricting to pure-
-   * placeholder rows we get a clean signal of the placeholder's intrinsic
-   * height; if no pure rows are currently buffered we keep the previous
-   * estimate rather than overwriting it with an inflated value.
+   * row's max, which biases a single-sample capture. By restricting to
+   * placeholder-only rows we get a clean signal of the placeholder's intrinsic
+   * height; if no placeholder-only rows are currently buffered we keep the
+   * previous estimate rather than overwriting it with an inflated value.
    */
   private updatePlaceholderRowHeight(): void {
     if (this.placeholderCellIndices.size === 0) return;
-    const cols = this.cachedColumnsPerRow;
-    // Bucket buffered placeholders by row.
-    const rowToPlaceholders = new Map<number, number[]>();
-    for (const idx of this.placeholderCellIndices) {
-      const row = Math.floor(idx / cols);
-      const existing = rowToPlaceholders.get(row);
-      if (existing) existing.push(idx);
-      else rowToPlaceholders.set(row, [idx]);
-    }
+
+    const rowToPlaceholders = this.groupPlaceholdersByRow();
     let sum = 0;
     let count = 0;
     for (const [row, indices] of rowToPlaceholders) {
-      // Skip mixed rows: any currently-rendered content cell in the row
-      // means the placeholder heights in that row are forced by CSS grid
-      // to match the rendered siblings.
-      //
-      // We deliberately check `renderedCellIndices` rather than `cellHeights`
-      // — the latter persists across buffer shifts (so cells the user
-      // scrolled past long ago still appear as "measured"), but the row's
-      // *current* render only depends on cells that are presently in the
-      // buffer as content. Using `cellHeights.has` here would treat almost
-      // every row as mixed after even modest scrolling, leaving the
-      // placeholder estimate permanently unupdated.
-      const firstCellInRow = row * cols;
-      let isMixed = false;
-      for (let c = 0; c < cols; c += 1) {
-        if (this.renderedCellIndices.has(firstCellInRow + c)) {
-          isMixed = true;
-          break;
-        }
-      }
-      if (!isMixed) {
+      if (this.isPlaceholderOnlyRow(row)) {
         for (const idx of indices) {
           const cell = this.cellContainerForIndex(idx);
           if (cell && cell.offsetHeight > 0) {
@@ -1112,8 +1086,50 @@ export class InfiniteScroller
     if (count > 0) {
       this.placeholderRowHeight = sum / count;
     }
-    // If no pure-placeholder rows are currently buffered, keep the previous
+    // If no placeholder-only rows are currently buffered, keep the previous
     // estimate rather than overwriting with an inflated mixed-row value.
+  }
+
+  /**
+   * Groups the currently-buffered placeholder cell indices by the row they
+   * belong to, for use by `updatePlaceholderRowHeight`.
+   */
+  private groupPlaceholdersByRow(): Map<number, number[]> {
+    const cols = this.cachedColumnsPerRow;
+    const rowToPlaceholders = new Map<number, number[]>();
+    for (const idx of this.placeholderCellIndices) {
+      const row = Math.floor(idx / cols);
+      const existing = rowToPlaceholders.get(row);
+      if (existing) existing.push(idx);
+      else rowToPlaceholders.set(row, [idx]);
+    }
+    return rowToPlaceholders;
+  }
+
+  /**
+   * Returns true if `row` contains only placeholder cells (no
+   * currently-rendered content cells). Placeholder-height sampling must
+   * restrict to such rows because CSS grid inflates the placeholder cells
+   * in mixed rows to match the row's rendered siblings, masking their
+   * intrinsic height.
+   *
+   * We deliberately check `renderedCellIndices` rather than `cellHeights`
+   * — the latter persists across buffer shifts (so cells the user scrolled
+   * past long ago still appear as "measured"), but the row's *current*
+   * render only depends on cells presently in the buffer as content. Using
+   * `cellHeights.has` here would mark almost every row as mixed after even
+   * modest scrolling, leaving the placeholder estimate permanently
+   * unupdated.
+   */
+  private isPlaceholderOnlyRow(row: number): boolean {
+    const cols = this.cachedColumnsPerRow;
+    const firstCellInRow = row * cols;
+    for (let c = 0; c < cols; c += 1) {
+      if (this.renderedCellIndices.has(firstCellInRow + c)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private computeBufferFromScroll(): void {
