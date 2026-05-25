@@ -985,7 +985,7 @@ describe('Review-finding regressions', () => {
     el.refreshAllVisibleCells();
     await el.updateComplete;
 
-    // Force a scroll event so computeBufferFromScroll re-measures.
+    // Force a scroll event so syncBufferToScrollPosition re-measures.
     window.dispatchEvent(new Event('scroll'));
     await promisedSleep(200);
     await el.updateComplete;

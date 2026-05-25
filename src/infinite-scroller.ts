@@ -567,7 +567,7 @@ export class InfiniteScroller
     // yet. The bounds must be snapped to row boundaries (multiples of `cols`),
     // otherwise the CSS grid lays the buffered cells out from column 0
     // instead of from the target cell's true column, producing a visual
-    // misalignment that the next computeBufferFromScroll would correct
+    // misalignment that the next syncBufferToScrollPosition would correct
     // with a visible jump.
     const container = this.getScrollContainer();
     const viewportHeight = isDocumentScroller(container)
@@ -616,7 +616,7 @@ export class InfiniteScroller
 
         // Smooth scroll: keep scrollToCellInProgress=true until the
         // animation settles. Otherwise handleScroll would fire during
-        // the animation, trigger computeBufferFromScroll, and the buffer
+        // the animation, trigger syncBufferToScrollPosition, and the buffer
         // shift's scroll anchoring would call scrollBy — which cancels
         // the in-flight smooth scroll and strands the user well short
         // of the target. Wait for scrollend (preferred) or a fallback
@@ -700,7 +700,7 @@ export class InfiniteScroller
       if (!this.scrollRafId && !this.scrollToCellInProgress) {
         this.scrollRafId = requestAnimationFrame(() => {
           this.scrollRafId = 0;
-          this.computeBufferFromScroll();
+          this.syncBufferToScrollPosition();
         });
       }
     }
@@ -799,7 +799,7 @@ export class InfiniteScroller
    * Computes the initial `bufferEnd` value used by `reload()` and
    * `setupVirtualization()` when the buffer starts at index 0 (i.e. before
    * any user scrolling). Generously over-allocates compared to the
-   * per-shift formula in `computeBufferFromScroll` because we don't yet
+   * per-shift formula in `syncBufferToScrollPosition` because we don't yet
    * know real row heights; the buffer is refined after first paint via
    * `stabilizeBuffer()`.
    */
@@ -894,14 +894,14 @@ export class InfiniteScroller
     if (!this.scrollRafId) {
       this.scrollRafId = requestAnimationFrame(() => {
         this.scrollRafId = 0;
-        this.computeBufferFromScroll();
+        this.syncBufferToScrollPosition();
       });
     }
     // Fire the idle handling only once, after scrolling stops
     if (this.scrollIdleTimer) clearTimeout(this.scrollIdleTimer);
     this.scrollIdleTimer = window.setTimeout(() => {
       this.scrollIdleTimer = 0;
-      this.computeBufferFromScroll();
+      this.syncBufferToScrollPosition();
     }, 150);
   };
 
@@ -1003,7 +1003,7 @@ export class InfiniteScroller
    * heights — chiefly `refreshCell` during async data load. Multiple
    * calls in the same task coalesce into a single rAF.
    *
-   * We deliberately do NOT call `computeBufferFromScroll` here — that
+   * We deliberately do NOT call `syncBufferToScrollPosition` here — that
    * could shift bufferStart/bufferEnd and remove the very cell whose
    * refresh just triggered this update. Only the scroll-layout values
    * are recomputed; the buffer window stays fixed.
@@ -1132,31 +1132,80 @@ export class InfiniteScroller
     return true;
   }
 
-  private computeBufferFromScroll(): void {
-    // Need to re-measure heights of buffered cells, since child components may have
+  private syncBufferToScrollPosition(): void {
+    // Re-measure heights of buffered cells, since child components may have
     // rendered since the cells were created
     this.measureBufferedCells();
 
-    const scrollContainer = this.getScrollContainer();
     if (!this.container) return;
-
-    const cols = this.cachedColumnsPerRow;
-    const { rowGap } = this;
     const totalRows = this.getTotalRows();
     if (totalRows === 0) return;
 
-    // Determine visible viewport relative to the content area
-    let scrollTop: number;
-    let viewportHeight: number;
-    if (isDocumentScroller(scrollContainer)) {
-      scrollTop = window.scrollY;
-      viewportHeight = window.innerHeight;
-    } else {
-      scrollTop = scrollContainer.scrollTop;
-      viewportHeight = scrollContainer.clientHeight;
-    }
+    const viewport = this.getContentRelativeViewport();
+    const { firstVisibleRow, lastVisibleRow } = this.findVisibleRowRange(
+      viewport.relativeScrollTop,
+      viewport.relativeScrollBottom,
+      totalRows
+    );
+    if (this.bufferHasSufficientMargin(firstVisibleRow, lastVisibleRow)) return;
 
-    const rectElement = this.scrollSpacer ?? this.container;
+    const { newStart, newEnd } = this.computeBufferBounds(
+      firstVisibleRow,
+      lastVisibleRow,
+      totalRows,
+      viewport.viewportHeight
+    );
+    if (newStart === this.bufferStart && newEnd === this.bufferEnd) return;
+
+    // Capture the visible anchor before mutating bufferStart/bufferEnd. The
+    // buffer shift typically changes bufferOffsetY by a different amount
+    // than the user's scrollTop just changed (e.g., when newly-absorbed
+    // rows have stale content-sized rowHeights from prior browsing), which
+    // would otherwise yank the visible content forward or backward.
+    const anchor = this.captureScrollAnchor();
+
+    // Update the default-row-height estimate to track the average of the
+    // currently-measured rows. We intentionally do NOT clear placeholder row
+    // heights here even when the current buffer has no placeholders, because
+    // there may still be placeholders elsewhere in the full span of cells.
+    // Clearing it can cause the buffer offset to oscillate between a
+    // placeholderRowHeight-based estimate and a defaultRowHeight-based one
+    // as the user scrolls through mixed regions, producing visible jumping.
+    // The placeholder estimate is reset only on reload() or a column-count
+    // change.
+    if (this.rowHeights.size > 0) {
+      this.rowHeightCache.recalculateDefaultRowHeight();
+    }
+    this.bufferStart = newStart;
+    this.bufferEnd = newEnd;
+    this.updateScrollLayout();
+    // Lit needs to re-render with the new buffer + transform before
+    // bounding-rect calls will reflect the new layout.
+    this.updateComplete.then(() => this.restoreScrollAnchor(anchor));
+  }
+
+  /**
+   * Computes the current viewport's location within the scroller's content
+   * area, accounting for whether the scroller is the document or a nested
+   * overflow container. Returns the viewport's top/bottom expressed as
+   * pixel offsets _within the scroller content_ (where 0 represents the top
+   * of the scroller itself). The container element must exist, or this method
+   * will throw.
+   */
+  private getContentRelativeViewport(): {
+    relativeScrollTop: number;
+    relativeScrollBottom: number;
+    viewportHeight: number;
+  } {
+    const scrollContainer = this.getScrollContainer();
+    const scrollTop = isDocumentScroller(scrollContainer)
+      ? window.scrollY
+      : scrollContainer.scrollTop;
+    const viewportHeight = isDocumentScroller(scrollContainer)
+      ? window.innerHeight
+      : scrollContainer.clientHeight;
+
+    const rectElement = this.scrollSpacer ?? this.container!;
     const spacerRect = rectElement.getBoundingClientRect();
     const containerTopInScroller = isDocumentScroller(scrollContainer)
       ? spacerRect.top + window.scrollY
@@ -1165,9 +1214,24 @@ export class InfiniteScroller
         scrollContainer.getBoundingClientRect().top;
 
     const relativeScrollTop = scrollTop - containerTopInScroller;
-    const relativeScrollBottom = relativeScrollTop + viewportHeight;
+    return {
+      relativeScrollTop,
+      relativeScrollBottom: relativeScrollTop + viewportHeight,
+      viewportHeight,
+    };
+  }
 
-    // Walk row heights to find first and last visible rows
+  /**
+   * Walks row heights to find the first and last rows currently visible
+   * within the viewport range `[relativeScrollTop, relativeScrollBottom)`.
+   * Uses the row height cache to acquire estimates/measurements of rows.
+   */
+  private findVisibleRowRange(
+    relativeScrollTop: number,
+    relativeScrollBottom: number,
+    totalRows: number
+  ): { firstVisibleRow: number; lastVisibleRow: number } {
+    const { rowGap } = this;
     let heightSoFar = 0;
     let firstVisibleRow = 0;
     let lastVisibleRow = totalRows - 1;
@@ -1190,28 +1254,58 @@ export class InfiniteScroller
       heightSoFar += rowHeight + rowGap;
     }
 
+    return { firstVisibleRow, lastVisibleRow };
+  }
+
+  /**
+   * Returns true if the current buffer is comfortably larger than the visible
+   * range. Specifically, at least `minMargin` rows of headroom must exist on
+   * each side. When the buffer has sufficient margin, we deliberately skip
+   * recomputing buffer bounds to avoid jittering back and forth on every
+   * scroll tick.
+   */
+  private bufferHasSufficientMargin(
+    firstVisibleRow: number,
+    lastVisibleRow: number
+  ): boolean {
+    const cols = this.cachedColumnsPerRow;
     const minBufferRows = Math.ceil(this.minBufferSize / cols);
     const numVisibleRows = lastVisibleRow - firstVisibleRow + 1;
     const proportionalRows = Math.ceil(numVisibleRows * this.bufferMultiplier);
     const bufferRows = Math.max(minBufferRows, proportionalRows);
 
-    // Skip recentering if current buffer still has adequate margin (since otherwise
-    // we can end up jittering back and forth)
     const currentStartRow = Math.floor(this.bufferStart / cols);
     const currentEndRow = Math.floor(
       Math.min(this.bufferEnd, this.itemCount - 1) / cols
     );
     const minMargin = Math.max(2, Math.floor(bufferRows / 3));
-    if (
+    return (
       firstVisibleRow >= currentStartRow + minMargin &&
       lastVisibleRow <= currentEndRow - minMargin
-    ) {
-      return;
-    }
+    );
+  }
 
-    // Since placeholder rows may be sized differently from fully-rendered ones,
-    // walk the visible rows to determine a more fine-grained buffer px size so
-    // that the buffer can be resized accordingly without blank spaces.
+  /**
+   * Computes where the rendered buffer should sit given the current
+   * visible row range, returning the new buffer's start and end cell indices.
+   *
+   * The buffer is extended past the visible rows by whichever is larger:
+   * the cell-count-based floor from `minBufferSize`, or an extension proportional
+   * to the viewportHeight (controlled by bufferMultiplier).
+   */
+  private computeBufferBounds(
+    firstVisibleRow: number,
+    lastVisibleRow: number,
+    totalRows: number,
+    viewportHeight: number
+  ): { newStart: number; newEnd: number } {
+    const cols = this.cachedColumnsPerRow;
+    const { rowGap } = this;
+    const minBufferRows = Math.ceil(this.minBufferSize / cols);
+
+    // Walk outward from the visible range in px to size the buffer, since
+    // placeholder rows can be very different sizes from fully-rendered ones
+    // (using row count alone would leave blank gaps in mixed-load regions).
     const minBufferPx = viewportHeight * Math.max(1, this.bufferMultiplier);
 
     let newStartRow = firstVisibleRow;
@@ -1238,40 +1332,10 @@ export class InfiniteScroller
       Math.min(totalRows - 1, lastVisibleRow + minBufferRows)
     );
 
-    const newStart = newStartRow * cols;
-    const newEnd = Math.min((newEndRow + 1) * cols - 1, this.itemCount - 1);
-
-    if (newStart !== this.bufferStart || newEnd !== this.bufferEnd) {
-      // Capture the visible anchor before mutating bufferStart/bufferEnd. The
-      // buffer shift typically changes bufferOffsetY by a different amount
-      // than the user's scrollTop just changed (e.g., when newly-absorbed
-      // rows have stale content-sized rowHeights from prior browsing), which
-      // would otherwise yank the visible content forward or backward.
-      const anchor = this.captureScrollAnchor();
-
-      // Need to update the fallback height estimates together so the
-      // values agree when sumRowHeights walks the rows to recompute
-      // the scroll-spacer height and buffer transform offset.
-      //
-      // We intentionally do NOT clear placeholderRowHeight here even when the
-      // current buffer happens to contain no placeholders: that signal only
-      // tells us about the current window, not whether placeholders exist
-      // elsewhere in the data. Clearing it caused bufferOffsetY to oscillate
-      // between a placeholderRowHeight-based estimate and a defaultRowHeight-
-      // based one as the user scrolled through mixed-load regions, producing
-      // visible "snap back / snap forward" jumps. The estimate is reset only
-      // on reload() or column-count change (where it is genuinely invalid).
-      if (this.rowHeights.size > 0) {
-        this.rowHeightCache.recalculateDefaultRowHeight();
-      }
-      this.bufferStart = newStart;
-      this.bufferEnd = newEnd;
-      this.updateScrollLayout();
-      // Lit needs to re-render with the new buffer + transform before
-      // bounding-rect reads will reflect the new layout. Defer the anchor
-      // restoration accordingly.
-      this.updateComplete.then(() => this.restoreScrollAnchor(anchor));
-    }
+    return {
+      newStart: newStartRow * cols,
+      newEnd: Math.min((newEndRow + 1) * cols - 1, this.itemCount - 1),
+    };
   }
 
   /**
@@ -1304,7 +1368,7 @@ export class InfiniteScroller
           this.placeholderRowHeight = undefined;
           this.rowHeightCache.recalculateAllRowHeights();
           this.updateScrollLayout();
-          this.computeBufferFromScroll();
+          this.syncBufferToScrollPosition();
         }
         if (this.rowHeights.size > 0) {
           this.rowHeightCache.recalculateDefaultRowHeight();
@@ -1335,7 +1399,7 @@ export class InfiniteScroller
     requestAnimationFrame(() => {
       this.measureBufferedCells();
       this.rowHeightCache.recalculateDefaultRowHeight();
-      this.computeBufferFromScroll();
+      this.syncBufferToScrollPosition();
       this.updateComplete.then(() => {
         this.endStabilization();
       });
