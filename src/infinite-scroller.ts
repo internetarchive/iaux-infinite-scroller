@@ -516,11 +516,13 @@ export class InfiniteScroller
       return true;
     }
 
-    // We don't want to handle all scroll events normally while we're animating
-    // a scroll to a cell, so flag it for now.
+    // We don't want to handle scroll events normally while we're scrolling
+    // to a cell, so flag it for now. Stays true until either we fail to find
+    // the target cell, or the synchronous scroll completes, or (in the
+    // animated case) the smooth scroll settles via scrollend/timeout.
     this.scrollToCellInProgress = true;
 
-    // Cancel any pending scroll idle timer
+    // Cancel any pending scroll-driven work, since we're overriding it.
     if (this.scrollRafId) {
       cancelAnimationFrame(this.scrollRafId);
       this.scrollRafId = 0;
@@ -530,13 +532,56 @@ export class InfiniteScroller
       this.scrollIdleTimer = 0;
     }
 
-    // Shift buffer to include the target, using estimated row heights
-    // since the new buffer's cells have not been rendered or measured
-    // yet. The bounds must be snapped to row boundaries (multiples of `cols`),
-    // otherwise the CSS grid lays the buffered cells out from column 0
-    // instead of from the target cell's true column, producing a visual
-    // misalignment that the next syncBufferToScrollPosition would correct
-    // with a visible jump.
+    this.snapBufferToCell(index);
+
+    // First we render cells for the buffer range and fill them with content.
+    // Then on the next animation frame we measure their real heights and
+    // recompute the scroll-layout values so we can scroll the targeted cell
+    // into view accurately.
+    await this.updateComplete;
+    await new Promise(r => requestAnimationFrame(r));
+    this.measureBufferedCells();
+    this.updateScrollLayout();
+    this.requestUpdate();
+    await this.updateComplete;
+
+    const targetCell = this.cellContainerForIndex(index);
+    if (!targetCell) {
+      this.scrollToCellInProgress = false;
+      return false;
+    }
+    targetCell.scrollIntoView({ behavior });
+
+    if (!animated) {
+      // Synchronous scroll has already completed.
+      this.scrollToCellInProgress = false;
+      return true;
+    }
+
+    // Smooth scroll: keep scrollToCellInProgress=true until the animation
+    // settles. Otherwise handleScroll would fire during the animation,
+    // trigger syncBufferToScrollPosition, and the buffer shift's scroll
+    // anchoring would call scrollBy. That would cancel the in-flight smooth
+    // scroll and strand the user well short of the target.
+    await this.nextSmoothScrollEnd();
+    this.scrollToCellInProgress = false;
+    return true;
+  }
+
+  /**
+   * Snap `bufferStart`/`bufferEnd` to the row containing `index`, with a
+   * margin of `bufferRows` rows on each side. Used by `scrollToCell`
+   * as the initial buffer setup, before any of the target's cells have
+   * been rendered or measured (following up with accurate measurements
+   * once the DOM updates).
+   *
+   * The bounds must be snapped to row boundaries (multiples of `cols`):
+   * otherwise the CSS grid lays the buffered cells out starting from
+   * column 0 instead of from the target cell's true column, producing a
+   * visual misalignment that the next `syncBufferToScrollPosition` would
+   * then correct with a visible jump.
+   */
+  private snapBufferToCell(index: number): void {
     const container = this.getScrollContainer();
     const viewportHeight = isDocumentScroller(container)
       ? window.innerHeight
@@ -554,63 +599,37 @@ export class InfiniteScroller
     this.bufferStart = startRow * cols;
     this.bufferEnd = Math.min(this.itemCount - 1, (endRow + 1) * cols - 1);
     this.updateScrollLayout();
+  }
 
-    // First we render cells for the buffer range and fill them with content.
-    // Once rendered, we can measure their real heights and recompute the
-    // scroll-spacer height and buffer transform offset based on accurate
-    // measurements, then scroll the targeted cell into view accurately.
-    await this.updateComplete;
+  /**
+   * Resolves when the next smooth-scroll animation settles. Listens for
+   * the native `scrollend` event (preferred) and falls back to a 2s
+   * timeout for browsers that don't fire it (older Firefox/Safari).
+   * The fallback timeout is also a safety net for very long animations:
+   * if the actual scroll runs longer than 2s, the buffer will resume
+   * normal updates a bit early but the animation itself isn't disrupted.
+   *
+   * One-shot — resolves on the next scrollend (or timeout) and then
+   * detaches. Callers needing to await another smooth-scroll cycle must
+   * call this again to register a fresh listener.
+   */
+  private nextSmoothScrollEnd(): Promise<void> {
     return new Promise(resolve => {
-      requestAnimationFrame(async () => {
-        this.measureBufferedCells();
-        this.updateScrollLayout();
-        this.requestUpdate();
-        await this.updateComplete;
-
-        const targetCell = this.cellContainerForIndex(index);
-        if (!targetCell) {
-          this.scrollToCellInProgress = false;
-          resolve(false);
-          return;
-        }
-        targetCell.scrollIntoView({ behavior });
-
-        if (!animated) {
-          // Synchronous scroll has already completed.
-          this.scrollToCellInProgress = false;
-          resolve(true);
-          return;
-        }
-
-        // Smooth scroll: keep scrollToCellInProgress=true until the
-        // animation settles. Otherwise handleScroll would fire during
-        // the animation, trigger syncBufferToScrollPosition, and the buffer
-        // shift's scroll anchoring would call scrollBy — which cancels
-        // the in-flight smooth scroll and strands the user well short
-        // of the target. Wait for scrollend (preferred) or a fallback
-        // timer (for browsers without scrollend).
-        const scrollContainer = this.getScrollContainer();
-        const eventTarget: EventTarget = isDocumentScroller(scrollContainer)
-          ? window
-          : scrollContainer;
-        let fallbackId = 0;
-        let cleaned = false;
-        const cleanup = (): void => {
-          if (cleaned) return;
-          cleaned = true;
-          eventTarget.removeEventListener('scrollend', cleanup);
-          if (fallbackId) window.clearTimeout(fallbackId);
-          this.scrollToCellInProgress = false;
-          resolve(true);
-        };
-        eventTarget.addEventListener('scrollend', cleanup, { once: true });
-        // Fallback for browsers without scrollend (older Firefox / Safari)
-        // and as a safety net if the event is dropped. 2 seconds covers
-        // a long smooth-scroll animation; if the actual scroll runs
-        // longer, the buffer will resume normal updates a bit early but
-        // the animation itself isn't disrupted (we don't call scrollBy).
-        fallbackId = window.setTimeout(cleanup, 2000);
-      });
+      const scrollContainer = this.getScrollContainer();
+      const eventTarget: EventTarget = isDocumentScroller(scrollContainer)
+        ? window
+        : scrollContainer;
+      let fallbackId = 0;
+      let cleaned = false;
+      const cleanup = (): void => {
+        if (cleaned) return;
+        cleaned = true;
+        eventTarget.removeEventListener('scrollend', cleanup);
+        if (fallbackId) window.clearTimeout(fallbackId);
+        resolve();
+      };
+      eventTarget.addEventListener('scrollend', cleanup, { once: true });
+      fallbackId = window.setTimeout(cleanup, 2000);
     });
   }
 
