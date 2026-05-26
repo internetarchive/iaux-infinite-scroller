@@ -172,6 +172,10 @@ export class InfiniteScroller
   /** @inheritdoc */
   @property({ type: Number }) estimatedCellHeight?: number;
 
+  @state() private totalContentHeight = 0;
+
+  @state() private bufferOffsetY = 0;
+
   @state() private bufferStart = 0;
 
   @state() private bufferEnd = 0;
@@ -188,6 +192,13 @@ export class InfiniteScroller
   @query('#scroll-spacer') private scrollSpacer?: HTMLDivElement;
 
   @queryAll('.cell-container') private cellContainers!: HTMLDivElement[];
+
+  /**
+   * Whether CSS Grid is supported in the current browser (our virtualization
+   * depends on it).
+   */
+  private supportsGrid =
+    typeof CSS !== 'undefined' && CSS.supports('display', 'grid');
 
   /**
    * Cache for all the cell/row tracking to ensure row heights stay
@@ -228,17 +239,6 @@ export class InfiniteScroller
   private set placeholderRowHeight(newHeight: number | undefined) {
     this.rowHeightCache.placeholderRowHeight = newHeight;
   }
-
-  private totalContentHeight = 0;
-
-  private bufferOffsetY = 0;
-
-  /**
-   * Whether CSS Grid is supported in the current browser (our virtualization
-   * depends on it).
-   */
-  private supportsGrid =
-    typeof CSS !== 'undefined' && CSS.supports('display', 'grid');
 
   //
   // Cell tracking maps
@@ -1154,20 +1154,14 @@ export class InfiniteScroller
   ): Promise<void> {
     try {
       await new Promise(r => requestAnimationFrame(r));
-      const prevTotal = this.totalContentHeight;
-      const prevOffset = this.bufferOffsetY;
       this.measureBufferedCells();
       this.updateScrollLayout();
-      if (
-        prevTotal !== this.totalContentHeight ||
-        prevOffset !== this.bufferOffsetY
-      ) {
-        this.requestUpdate();
-        await this.updateComplete;
-      }
-      // Geometry didn't change but in-buffer row heights might still have
-      // (the spacer total and bufferOffsetY can stay constant while
-      // individual row heights inside the buffer change). Re-anchor either way.
+      // `updateScrollLayout` mutates the `@state` geometry values, which
+      // schedules a render if they actually changed. If they didn't,
+      // `updateComplete` resolves immediately. Either way, by this point
+      // any geometry-driven DOM updates have been flushed — safe to
+      // re-anchor against the new layout.
+      await this.updateComplete;
       this.scrollAnchor.restore(anchor);
     } finally {
       this.pendingScrollLayoutUpdate = null;
