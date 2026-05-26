@@ -33,21 +33,6 @@ export interface ScrollAnchorHostInterface {
 }
 
 /**
- * One of three states for the single-slot anchor mailbox between the
- * synchronous pre-mutation capture and its later rAF consumption:
- *
- *   - `'uncaptured'` — nothing has been stashed this batch; the consumer
- *     should capture fresh.
- *   - `'not-found'` — a pre-mutation capture was attempted but produced
- *     no anchor (e.g. inactive, or no visible cells). The consumer must
- *     honor this and NOT re-capture; re-capturing would defeat the
- *     pre-mutation timing.
- *   - a `ScrollAnchorPoint` — a real anchor was captured pre-mutation
- *     and is waiting to be consumed.
- */
-type StashedAnchorPoint = 'uncaptured' | 'not-found' | ScrollAnchorPoint;
-
-/**
  * Captures and restores a "scroll anchor": a reference to the topmost
  * visible cell, plus its viewport-relative position. Used by the host to
  * keep the user's view stable across operations that shift cell positions
@@ -56,15 +41,12 @@ type StashedAnchorPoint = 'uncaptured' | 'not-found' | ScrollAnchorPoint;
  * Also owns the "suppress next scroll event" flag, which prevents the
  * recursive case where restoring a scroll anchor triggers `scrollend`/
  * `scroll` listeners that would then re-anchor and oscillate.
+ *
+ * The host is responsible for the timing of capture/restore, typically
+ * capturing pre-mutation, holding the anchor until needed, then restoring
+ * once the layout has settled.
  */
 export class ScrollAnchor {
-  /**
-   * Single-slot mailbox holding an anchor captured pre-mutation (e.g. by
-   * `refreshCell`) for the next `scheduleScrollLayoutUpdate` rAF to
-   * consume. See `StashedAnchorPoint` for the state encoding.
-   */
-  private stashedAnchorPoint: StashedAnchorPoint = 'uncaptured';
-
   /**
    * Set by `restore()` when it adjusts `scrollTop`, consumed (and
    * cleared) by `shouldSuppressNextScrollEvent()` at the top of the
@@ -84,12 +66,9 @@ export class ScrollAnchor {
    * its viewport-relative top position. Pair every call with `restore`.
    *
    * Prefers a **rendered (content) cell** over a placeholder when one is
-   * visible. The user's mental model is anchored on the actual content
-   * they're looking at, not on a generic placeholder graphic — if a
-   * placeholder happens to slide into the topmost-visible position as
-   * the buffer shifts, anchoring to it would let the surrounding content
-   * drift. Falls back to the topmost visible placeholder when no
-   * rendered cell is in view.
+   * visible, since anchoring actual cell content is more important than
+   * anchoring generic placeholder graphics. Falls back to the topmost
+   * visible placeholder when no rendered cell is in view.
    */
   capture(): ScrollAnchorPoint | null {
     if (!this.host.isActive()) return null;
@@ -164,34 +143,6 @@ export class ScrollAnchor {
     } else {
       scrollContainer.scrollTop += delta;
     }
-  }
-
-  /**
-   * Capture an anchor into the stashed slot, but only if the slot is
-   * currently empty. Within a batch of refreshes (e.g., many
-   * `setTimeout` placeholder loads firing in the same task) only the
-   * FIRST call actually captures — the anchor must reflect the
-   * pre-mutation layout, before any synchronous `render(...)` call from
-   * `removeCell`/`renderCellBuffer` has shifted row heights. Later
-   * picked up by `consumeStashedOrCapture()`.
-   */
-  captureIfEmpty(): void {
-    if (this.stashedAnchorPoint !== 'uncaptured') return;
-    this.stashedAnchorPoint = this.capture() ?? 'not-found';
-  }
-
-  /**
-   * If a pre-mutation anchor was stashed via `captureIfEmpty()`, return it
-   * and clear the slot. Otherwise, capture a fresh anchor now. The stashed
-   * value may itself be `null` (meaning "we tried to capture before
-   * mutation but couldn't") — that is honored as-is, since re-capturing
-   * in that case would defeat the pre-mutation timing.
-   */
-  consumeStashedOrCapture(): ScrollAnchorPoint | null {
-    if (this.stashedAnchorPoint === 'uncaptured') return this.capture();
-    const result = this.stashedAnchorPoint;
-    this.stashedAnchorPoint = 'uncaptured';
-    return result === 'not-found' ? null : result;
   }
 
   /**

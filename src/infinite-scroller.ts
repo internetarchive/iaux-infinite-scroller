@@ -25,7 +25,7 @@ import {
   INITIAL_ROW_HEIGHT,
   RowHeightCache,
 } from './internal/row-height-cache';
-import { ScrollAnchor } from './internal/scroll-anchor';
+import { ScrollAnchor, ScrollAnchorPoint } from './internal/scroll-anchor';
 
 export interface InfiniteScrollerCellProviderInterface {
   cellForIndex(index: number): TemplateResult | undefined;
@@ -271,12 +271,12 @@ export class InfiniteScroller
   private scrollRafId = 0;
 
   /**
-   * Pending animation frame ID for the next scroll-layout update, to
-   * re-measure cell/scroller heights and re-anchor the scroll position.
-   * Tracked so that many calls to `scheduleScrollLayoutUpdate` in the
-   * same tick coalesce into a single pass and can be cancelled on teardown.
+   * Promise tracking an in-flight scroll layout update, so that further
+   * calls to `scheduleScrollLayoutUpdate` can be coalesced into a single
+   * update. The scroll anchor for that update is captured when the promise
+   * starts.
    */
-  private scrollLayoutRafId = 0;
+  private pendingScrollLayoutUpdate: Promise<void> | null = null;
 
   private scrollIdleTimer = 0;
 
@@ -706,7 +706,7 @@ export class InfiniteScroller
         }
         return;
       }
-      this.scrollAnchor.captureIfEmpty();
+      this.scheduleScrollLayoutUpdate();
     }
     this.removeCell(index);
     // In virtualized mode, the early-return above already confirmed `index` is
@@ -714,17 +714,15 @@ export class InfiniteScroller
     // bufferRange membership check.
     if (this.isVirtualized || this.bufferRange.includes(index)) {
       this.renderCellBuffer([index]);
-      if (this.isVirtualized) this.scheduleScrollLayoutUpdate();
     }
   }
 
   /** @inheritdoc */
   refreshAllVisibleCells(): void {
-    if (this.isVirtualized) this.scrollAnchor.captureIfEmpty();
+    if (this.isVirtualized) this.scheduleScrollLayoutUpdate();
     const range = this.bufferRange;
     range.forEach(index => this.removeCell(index));
     this.renderCellBuffer(range);
-    if (this.isVirtualized) this.scheduleScrollLayoutUpdate();
   }
 
   /** @inheritdoc */
@@ -973,10 +971,6 @@ export class InfiniteScroller
       cancelAnimationFrame(this.scrollRafId);
       this.scrollRafId = 0;
     }
-    if (this.scrollLayoutRafId) {
-      cancelAnimationFrame(this.scrollLayoutRafId);
-      this.scrollLayoutRafId = 0;
-    }
     if (this.scrollIdleTimer) {
       clearTimeout(this.scrollIdleTimer);
       this.scrollIdleTimer = 0;
@@ -1122,29 +1116,38 @@ export class InfiniteScroller
   };
 
   /**
-   * Schedule an animation frame to re-measure buffered cell heights, recomputing
-   * `totalContentHeight` and `bufferOffsetY` (the scroll-layout values
-   * that determine how tall the spacer is and where the rendered buffer
-   * sits within it), and re-anchors the visible scroll position. Called
-   * after any DOM mutation that could change in-buffer row heights.
+   * Schedule a coalesced scroll-layout update: re-measure buffered cell
+   * heights, recompute the spacer & buffer size/positioning, and re-anchor
+   * the visible scroll position. Called after any DOM mutation that could
+   * change in-buffer row heights.
    *
-   * We deliberately do NOT call `syncBufferToScrollPosition` here, which could
-   * could shift bufferStart/bufferEnd and remove the very cell whose
-   * refresh just triggered this update. Only the scroll-layout values
-   * are recomputed; the buffer window stays fixed.
+   * If an update is already pending, this call will be a no-op.
+   *
+   * We deliberately do not call `syncBufferToScrollPosition` here, which could
+   * shift bufferStart/bufferEnd and remove the very cell whose refresh just
+   * triggered the update. Only the scroll-layout values are recomputed; the
+   * buffer window stays fixed.
    */
   private scheduleScrollLayoutUpdate(): void {
-    if (this.scrollLayoutRafId) return;
-    this.scrollLayoutRafId = requestAnimationFrame(() => {
-      this.scrollLayoutRafId = 0;
-      // Prefer the anchor captured synchronously by refreshCell/
-      // refreshAllVisibleCells *before* their render() calls mutated the
-      // DOM. Capturing here in the rAF would see the post-mutation
-      // renderedCellIndices and pick a newly-rendered cell as anchor
-      // that sits at the top of its own grown row and didn't move.
-      // For paths that don't pre-capture (e.g., outside-buffer cleanup),
-      // fall back to capturing now.
-      const anchor = this.scrollAnchor.consumeStashedOrCapture();
+    if (this.pendingScrollLayoutUpdate) return;
+    const anchor = this.scrollAnchor.capture();
+    this.pendingScrollLayoutUpdate = this.runScrollLayoutUpdate(anchor);
+  }
+
+  /**
+   * The async body for a scheduled scroll-layout update. Holds the
+   * pre-mutation `anchor` in closure scope across an animation frame,
+   * then re-measures, recomputes layout, and restores the anchor once
+   * Lit has rendered (when geometry changed) or immediately otherwise.
+   *
+   * The finally block ensures `pendingScrollLayoutUpdate` is cleared
+   * regardless of errors, so the next batch can start.
+   */
+  private async runScrollLayoutUpdate(
+    anchor: ScrollAnchorPoint | null
+  ): Promise<void> {
+    try {
+      await new Promise(r => requestAnimationFrame(r));
       const prevTotal = this.totalContentHeight;
       const prevOffset = this.bufferOffsetY;
       this.measureBufferedCells();
@@ -1154,14 +1157,15 @@ export class InfiniteScroller
         prevOffset !== this.bufferOffsetY
       ) {
         this.requestUpdate();
-        this.updateComplete.then(() => this.scrollAnchor.restore(anchor));
-      } else {
-        // Geometry didn't change but in-buffer row heights might still have
-        // (the spacer total and bufferOffsetY can stay constant while
-        // individual row heights inside the buffer change). Re-anchor anyway.
-        this.scrollAnchor.restore(anchor);
+        await this.updateComplete;
       }
-    });
+      // Geometry didn't change but in-buffer row heights might still have
+      // (the spacer total and bufferOffsetY can stay constant while
+      // individual row heights inside the buffer change). Re-anchor either way.
+      this.scrollAnchor.restore(anchor);
+    } finally {
+      this.pendingScrollLayoutUpdate = null;
+    }
   }
 
   private measureBufferedCells(): void {
