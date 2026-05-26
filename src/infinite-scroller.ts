@@ -389,6 +389,7 @@ export class InfiniteScroller
       this.pruneStaleIndices();
       if (this.isVirtualized) {
         this.updateScrollLayout();
+        this.syncBufferToScrollPosition();
       }
     }
   }
