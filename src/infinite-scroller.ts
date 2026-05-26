@@ -16,7 +16,6 @@ import {
   state,
 } from 'lit/decorators.js';
 import { repeat } from 'lit/directives/repeat.js';
-import { generateRange } from './range-generator';
 import {
   findScrollContainer,
   isDocumentScroller,
@@ -26,6 +25,7 @@ import {
   RowHeightCache,
 } from './internal/row-height-cache';
 import { ScrollAnchor, ScrollAnchorPoint } from './internal/scroll-anchor';
+import { generateRange } from './internal/range-generator';
 
 export interface InfiniteScrollerCellProviderInterface {
   cellForIndex(index: number): TemplateResult | undefined;
