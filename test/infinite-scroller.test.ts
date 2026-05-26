@@ -27,7 +27,7 @@ function cellsOf(el: InfiniteScroller): HTMLDivElement[] {
 
 /**
  * Trivial cell provider that just renders `cell-<index>` into a div.
- * Used in tests that don't care about per-cell heights or behavior —
+ * Used in tests that don't care about per-cell heights or behavior;
  * they just need the scroller to have a populated cellProvider.
  */
 const trivialCellProvider: InfiniteScrollerCellProviderInterface = {
@@ -229,6 +229,79 @@ describe('Infinite Scroller Virtualization', () => {
     expect(await el.scrollToCell(1000, false)).to.be.false;
   });
 
+  it('scrollToCell snaps the buffer to a row boundary', async () => {
+    const cellProvider = trivialCellProvider;
+    const el = await fixture<InfiniteScroller>(
+      html`<infinite-scroller
+        .itemCount=${1000}
+        .cellProvider=${cellProvider}
+      ></infinite-scroller>`
+    );
+    await el.bufferStabilized;
+
+    // 503 is intentionally NOT divisible by typical grid column counts (2..8),
+    // so the bug manifests for any realistic viewport width.
+    await el.scrollToCell(503, false);
+    await el.updateComplete;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cols = (el as any).cachedColumnsPerRow as number;
+    if (cols <= 1) {
+      // Single-column grid is always row-aligned trivially; skip the assertion.
+      return;
+    }
+    const cells = el.shadowRoot?.querySelectorAll('.cell-container');
+    const firstIndex = Number(
+      (cells?.[0] as HTMLElement | undefined)?.dataset.cellIndex ?? '0'
+    );
+    expect(
+      firstIndex % cols,
+      `bufferStart should be row-aligned (got firstIndex=${firstIndex}, cols=${cols})`
+    ).to.equal(0);
+  });
+
+  it('animated scrollToCell lands at the target cell, not stranded short of it', async () => {
+    const cellProvider: InfiniteScrollerCellProviderInterface = {
+      cellForIndex: (index: number): TemplateResult | undefined =>
+        html`<div style="height:${50 + (index % 5) * 10}px">
+          cell-${index}
+        </div>`,
+    };
+    const el = await fixture<InfiniteScroller>(
+      html`<infinite-scroller
+        .itemCount=${2000}
+        .cellProvider=${cellProvider}
+      ></infinite-scroller>`
+    );
+    await el.bufferStabilized;
+
+    const result = await el.scrollToCell(1000, true);
+    expect(result).to.be.true;
+
+    // After the promise resolves, the smooth-scroll animation has settled
+    // (we wait for scrollend or the fallback timer). The target cell must
+    // still be in the rendered buffer AND its bounding rect should be at
+    // or near the top of the viewport, where scrollIntoView with
+    // default 'block: start' should leave it.
+    const target = el.shadowRoot?.querySelector(
+      '.cell-container[data-cell-index="1000"]'
+    ) as HTMLElement | null;
+    expect(target, 'target cell should remain buffered after smooth scroll').to
+      .exist;
+
+    const rect = target!.getBoundingClientRect();
+    // The target's top should be near the top of the viewport. Tolerate
+    // up to half a viewport of slop for browser-specific scroll behavior
+    // (sticky headers, grid alignment, etc.) but reject "stopped 90% of
+    // the way short" symptoms where the target is far below the viewport.
+    expect(
+      rect.top,
+      `target cell ended up at viewport-top ${rect.top.toFixed(
+        1
+      )}, too far down`
+    ).to.be.lessThan(window.innerHeight / 2);
+  });
+
   it('renders all cells immediately when scrollOptimizationsDisabled is true', async () => {
     const el = await fixture<InfiniteScroller>(
       html`<infinite-scroller
@@ -258,7 +331,7 @@ describe('Infinite Scroller Virtualization', () => {
     expect(cells.length).to.be.greaterThan(0);
     const firstCell = cells[0];
     // With bufferStart=0 the topmost cell is index 0, whose aria-posinset
-    // (1-based) must be exactly 1 — not just "some positive number".
+    // (1-based) must be exactly 1.
     expect(firstCell.getAttribute('aria-posinset')).to.equal('1');
     expect(firstCell.getAttribute('aria-setsize')).to.equal('1000');
   });
@@ -383,8 +456,7 @@ describe('Infinite Scroller Virtualization', () => {
     el.refreshAllVisibleCells();
     await el.updateComplete;
 
-    // All buffered cells should have updated content. Verify every rendered
-    // cell, not just a sample — refreshAllVisibleCells's contract is "all".
+    // All buffered cells should have updated content; verify them all.
     const cells = cellsOf(el);
     expect(cells.length).to.be.greaterThan(0);
     for (const cell of cells) {
@@ -682,14 +754,13 @@ describe('scrollThresholdReached sentinel behavior', () => {
     // including one without any debouncing. To actually verify debouncing,
     // assert that 10 rapid itemCount changes produce FAR fewer than 10
     // additional events. In practice this implementation produces zero
-    // additional events — each scheduleSentinelRecheck cancels the previous
+    // additional events: each scheduleSentinelRecheck cancels the previous
     // pending IO callback, so they collapse to a single "settled" recheck.
     expect(
       eventCount,
-      `${numIterations} rapid itemCount changes should debounce to far fewer ` +
-        `than ${numIterations} additional events (got ${
-          eventCount - initialCount
-        } extras)`
+      `${numIterations} rapid itemCount changes produced ${
+        eventCount - initialCount
+      } extra events; debouncing failed`
     ).to.be.lessThan(initialCount + numIterations / 2);
   });
 
@@ -715,6 +786,23 @@ describe('scrollThresholdReached sentinel behavior', () => {
 
     // Sentinel should be able to fire again after reload
     expect(eventCount).to.be.greaterThan(1);
+  });
+
+  it('fires exactly once when a listener is attached before stabilization', async () => {
+    const el = document.createElement('infinite-scroller') as InfiniteScroller;
+    let eventCount = 0;
+    el.addEventListener('scrollThresholdReached', () => {
+      eventCount += 1;
+    });
+    el.itemCount = 5;
+    document.body.appendChild(el);
+    try {
+      await el.bufferStabilized;
+      await promisedSleep(200);
+      expect(eventCount).to.equal(1);
+    } finally {
+      el.remove();
+    }
   });
 });
 
@@ -797,6 +885,276 @@ describe('Scroll layout and placeholder edge cases', () => {
       expect(cell.querySelector('.ph')).to.exist;
     });
   });
+
+  it('row heights shrink when placeholders are replaced with shorter content', async () => {
+    // Placeholders are 200px; real content is 20px. The spacer for the cells
+    // that have loaded should not still be using the inflated placeholder
+    // height. Override --infiniteScrollerCellMinHeight so the cell-container
+    // doesn't impose a 22.5rem floor that would mask the height change.
+    let returnContent = false;
+    const cellProvider: InfiniteScrollerCellProviderInterface = {
+      cellForIndex: (index: number): TemplateResult | undefined =>
+        returnContent
+          ? html`<div style="height:20px">cell-${index}</div>`
+          : undefined,
+    };
+    const el = await fixture<InfiniteScroller>(
+      html`<infinite-scroller
+        style="--infiniteScrollerCellMinHeight:0"
+        .itemCount=${50}
+        .cellProvider=${cellProvider}
+        .placeholderCellTemplate=${html`<div style="height:200px">
+          loading
+        </div>`}
+      ></infinite-scroller>`
+    );
+    await el.bufferStabilized;
+
+    const spacer = el.shadowRoot?.querySelector(
+      '#scroll-spacer'
+    ) as HTMLElement;
+    const placeholderTotal = parseFloat(spacer.style.height);
+    expect(placeholderTotal).to.be.greaterThan(0);
+
+    // Flip the provider so cells return real (shorter) content.
+    returnContent = true;
+    el.refreshAllVisibleCells();
+    await el.updateComplete;
+
+    // Force a scroll event so syncBufferToScrollPosition re-measures.
+    window.dispatchEvent(new Event('scroll'));
+    await promisedSleep(200);
+    await el.updateComplete;
+
+    const contentTotal = parseFloat(spacer.style.height);
+    // After loading 20px content into all 50 cells we expect roughly
+    // 50/cols * 20 + gaps, definitely far less than the placeholder total.
+    expect(
+      contentTotal,
+      `spacer should shrink from ${placeholderTotal} towards content height`
+    ).to.be.lessThan(placeholderTotal * 0.6);
+  });
+
+  it('spacer height updates after refreshAllVisibleCells without an explicit scroll', async () => {
+    let returnContent = false;
+    const cellProvider: InfiniteScrollerCellProviderInterface = {
+      cellForIndex: (index: number): TemplateResult | undefined =>
+        returnContent
+          ? html`<div style="height:20px">cell-${index}</div>`
+          : undefined,
+    };
+    const el = await fixture<InfiniteScroller>(
+      html`<infinite-scroller
+        style="--infiniteScrollerCellMinHeight:0"
+        .itemCount=${50}
+        .cellProvider=${cellProvider}
+        .placeholderCellTemplate=${html`<div style="height:200px">
+          loading
+        </div>`}
+      ></infinite-scroller>`
+    );
+    await el.bufferStabilized;
+
+    const spacer = el.shadowRoot?.querySelector(
+      '#scroll-spacer'
+    ) as HTMLElement;
+    const placeholderTotal = parseFloat(spacer.style.height);
+
+    returnContent = true;
+    el.refreshAllVisibleCells();
+    await el.updateComplete;
+    // No scroll event here, should still update.
+    await waitForFrame();
+    await el.updateComplete;
+
+    const contentTotal = parseFloat(spacer.style.height);
+    expect(
+      contentTotal,
+      `spacer should update without an explicit scroll (was ${placeholderTotal}, still ${contentTotal})`
+    ).to.be.lessThan(placeholderTotal * 0.8);
+  });
+
+  it('placeholderRowHeight reflects placeholder-only rows, not row-mixed first sample', async () => {
+    // Cell 0 returns tall content immediately; the rest are placeholders.
+    // With cols >= 2, row 0 mixes a 200px content cell with placeholder cells
+    // that get inflated by the grid layout to match. The first placeholder
+    // by iteration order (cell 1) is in that inflated row, so capturing
+    // from it alone produces a biased ~200 estimate, even though the
+    // typical placeholder-only row is only ~50px tall.
+    const cellProvider: InfiniteScrollerCellProviderInterface = {
+      cellForIndex: (index: number): TemplateResult | undefined =>
+        index === 0
+          ? html`<div style="height:200px">cell-${index}</div>`
+          : undefined,
+    };
+    const el = await fixture<InfiniteScroller>(
+      html`<infinite-scroller
+        style="--infiniteScrollerCellMinHeight:0"
+        .itemCount=${100}
+        .cellProvider=${cellProvider}
+        .placeholderCellTemplate=${html`<div style="height:50px">loading</div>`}
+      ></infinite-scroller>`
+    );
+    await el.bufferStabilized;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cols = (el as any).cachedColumnsPerRow as number;
+    if (cols < 2) {
+      // cols=1 puts every cell in its own row, so no row-mixing is possible
+      // and the bug scenario doesn't apply. Skip to keep the test stable
+      // across viewport widths.
+      return;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ph = (el as any).placeholderRowHeight as number | undefined;
+    expect(ph, 'placeholderRowHeight should be set').to.be.a('number');
+    expect(
+      ph!,
+      `placeholderRowHeight ${ph} should reflect typical placeholder-only rows (~50)`
+    ).to.be.closeTo(50, 30);
+  });
+
+  it('placeholderRowHeight is not poisoned by stale cellHeights from previously-content cells', async () => {
+    // A user scrolls through a large list while it renders content
+    // (populating cellHeights across many rows), then switches behavior so
+    // future renders return placeholders. When previously-content cells
+    // re-enter the buffer as placeholders, their row's stale cellHeights
+    // entries shouldn't make `updatePlaceholderRowHeight` treat the row as
+    // mixed; that would leave the placeholder estimate permanently
+    // undefined and produce blank space in the viewport.
+    let phase: 1 | 2 = 1;
+    const cellProvider: InfiniteScrollerCellProviderInterface = {
+      cellForIndex: (i: number): TemplateResult | undefined => {
+        if (phase === 1) {
+          return html`<div style="height:200px">cell-${i}</div>`;
+        }
+        // Phase 2: only the first 10 cells return content; the rest go
+        // back to being placeholders.
+        return i < 10
+          ? html`<div style="height:200px">cell-${i}</div>`
+          : undefined;
+      },
+    };
+    const el = await fixture<InfiniteScroller>(
+      html`<infinite-scroller
+        style="--infiniteScrollerCellMinHeight:0"
+        .itemCount=${500}
+        .cellProvider=${cellProvider}
+        .placeholderCellTemplate=${html`<div style="height:50px">loading</div>`}
+      ></infinite-scroller>`
+    );
+    await el.bufferStabilized;
+
+    // Scroll through several positions in phase 1 to accumulate cellHeights
+    // entries spread across many rows.
+    await el.scrollToCell(100, false);
+    await el.updateComplete;
+    await el.scrollToCell(200, false);
+    await el.updateComplete;
+    await el.scrollToCell(300, false);
+    await el.updateComplete;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cellHeightsSize = (el as any).cellHeights.size as number;
+    // We need a meaningful number of stale entries to exercise the
+    // mixed-row detection path. Assert this as a precondition rather
+    // than silently skipping. If the test's viewport stops producing
+    // enough cellHeights entries, we want to know rather than have the
+    // test report a false pass.
+    expect(
+      cellHeightsSize,
+      `precondition: phase 1 should populate >=50 cellHeights entries (got ${cellHeightsSize})`
+    ).to.be.at.least(50);
+
+    // Phase 2: future renders return placeholders for high-index cells.
+    phase = 2;
+
+    // Scroll back to a previously-visited region. The cells there had
+    // their `cellHeights` entries set during phase 1, but with `phase=2`
+    // and the cells having left the buffer in the meantime, they
+    // re-enter as placeholders.
+    await el.scrollToCell(200, false);
+    await el.updateComplete;
+    await waitForFrame();
+    await el.updateComplete;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ph = (el as any).placeholderRowHeight as number | undefined;
+    expect(
+      ph,
+      'placeholderRowHeight should be set even with stale cellHeights'
+    ).to.be.a('number');
+    expect(
+      ph!,
+      `placeholderRowHeight ${ph} should reflect ~50 placeholders, not stale measurements`
+    ).to.be.closeTo(50, 30);
+  });
+
+  it('rowHeights reflect current placeholder rendering, not stale content measurements', async () => {
+    // rowHeights derives from cellHeights, and a cell that was once content
+    // (with cellHeights[i]=200) but is now back in the buffer as a
+    // placeholder should not leave rowHeights pointing at the stale 200.
+    // Otherwise sumRowHeights would treat each row as content-sized, fits
+    // only ~half as many rows in the viewport as it should, and the buffer
+    // extension stops short, leaving blank space below the rendered
+    // placeholders.
+    let phase: 1 | 2 = 1;
+    const cellProvider: InfiniteScrollerCellProviderInterface = {
+      cellForIndex: (i: number): TemplateResult | undefined => {
+        if (phase === 1) {
+          return html`<div style="height:200px">cell-${i}</div>`;
+        }
+        return undefined;
+      },
+    };
+    const el = await fixture<InfiniteScroller>(
+      html`<infinite-scroller
+        style="--infiniteScrollerCellMinHeight:0"
+        .itemCount=${500}
+        .cellProvider=${cellProvider}
+        .placeholderCellTemplate=${html`<div style="height:50px">loading</div>`}
+      ></infinite-scroller>`
+    );
+    await el.bufferStabilized;
+
+    await el.scrollToCell(100, false);
+    await el.updateComplete;
+    await el.scrollToCell(200, false);
+    await el.updateComplete;
+    await el.scrollToCell(300, false);
+    await el.updateComplete;
+
+    phase = 2;
+
+    await el.scrollToCell(200, false);
+    await el.updateComplete;
+    await waitForFrame();
+    await el.updateComplete;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cols = (el as any).cachedColumnsPerRow as number;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rowHeights = (el as any).rowHeights as Map<number, number>;
+
+    // Sample a few rows around the target. Any of them currently containing
+    // placeholders in the buffer should NOT still report the content-sized
+    // height (~200); that would be a stale measurement.
+    const targetRow = Math.floor(200 / cols);
+    const stale: { row: number; height: number }[] = [];
+    for (let r = targetRow - 1; r <= targetRow + 1; r += 1) {
+      const h = rowHeights.get(r);
+      if (h !== undefined && h > 100) {
+        stale.push({ row: r, height: h });
+      }
+    }
+    expect(
+      stale,
+      `stale content-sized rowHeights around row ${targetRow}: ${JSON.stringify(
+        stale
+      )}`
+    ).to.deep.equal([]);
+  });
 });
 
 describe('Buffer multiplier and estimatedCellHeight', () => {
@@ -865,7 +1223,7 @@ describe('Buffer multiplier and estimatedCellHeight', () => {
   });
 });
 
-describe('scrollToCell animated and lifecycle', () => {
+describe('Lifecycle (connect/disconnect/stabilization)', () => {
   it('remains functional after disconnect and reconnect', async () => {
     const cellProvider = trivialCellProvider;
     const el = await fixture<InfiniteScroller>(
@@ -885,10 +1243,9 @@ describe('scrollToCell animated and lifecycle', () => {
     await promisedSleep(50);
 
     // Re-append (triggers connectedCallback) and verify the scroller is
-    // still functional — not just that cells exist, but that core operations
-    // (scrollToCell, refreshCell) work without errors on the reconnected
-    // element. Catches subtle teardown bugs like a severed observer or a
-    // stale internal reference that would only manifest mid-operation.
+    // still functional. Core operations (scrollToCell, refreshCell) should
+    // still work without errors on the reconnected element (no missing
+    // observations etc).
     parent.appendChild(el);
     await el.bufferStabilized;
 
@@ -907,138 +1264,8 @@ describe('scrollToCell animated and lifecycle', () => {
       'target cell should be in the buffer after reconnect + scrollToCell'
     ).to.exist;
   });
-});
 
-/**
- * Regression tests for the issues raised in notes/.  Each test is written
- * to fail against the current (pre-fix) code and should pass once the
- * corresponding fix in notes/NN-*.md is applied.
- */
-describe('Review-finding regressions', () => {
-  afterEach(() => {
-    window.scrollTo(0, 0);
-  });
-
-  it('issue 1: scrollToCell snaps the buffer to a row boundary', async () => {
-    const cellProvider = trivialCellProvider;
-    const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller
-        .itemCount=${1000}
-        .cellProvider=${cellProvider}
-      ></infinite-scroller>`
-    );
-    await el.bufferStabilized;
-
-    // 503 is intentionally NOT divisible by typical grid column counts (2..8),
-    // so the bug manifests for any realistic viewport width.
-    await el.scrollToCell(503, false);
-    await el.updateComplete;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const cols = (el as any).cachedColumnsPerRow as number;
-    if (cols <= 1) {
-      // Single-column grid is always row-aligned trivially; skip the assertion.
-      return;
-    }
-    const cells = el.shadowRoot?.querySelectorAll('.cell-container');
-    const firstIndex = Number(
-      (cells?.[0] as HTMLElement | undefined)?.dataset.cellIndex ?? '0'
-    );
-    expect(
-      firstIndex % cols,
-      `bufferStart should be row-aligned (got firstIndex=${firstIndex}, cols=${cols})`
-    ).to.equal(0);
-  });
-
-  it('issue 2: row heights shrink when placeholders are replaced with shorter content', async () => {
-    // Placeholders are 200px; real content is 20px. The spacer for the cells
-    // that have loaded should not still be using the inflated placeholder
-    // height. Override --infiniteScrollerCellMinHeight so the cell-container
-    // doesn't impose a 22.5rem floor that would mask the height change.
-    let returnContent = false;
-    const cellProvider: InfiniteScrollerCellProviderInterface = {
-      cellForIndex: (index: number): TemplateResult | undefined =>
-        returnContent
-          ? html`<div style="height:20px">cell-${index}</div>`
-          : undefined,
-    };
-    const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller
-        style="--infiniteScrollerCellMinHeight:0"
-        .itemCount=${50}
-        .cellProvider=${cellProvider}
-        .placeholderCellTemplate=${html`<div style="height:200px">
-          loading
-        </div>`}
-      ></infinite-scroller>`
-    );
-    await el.bufferStabilized;
-
-    const spacer = el.shadowRoot?.querySelector(
-      '#scroll-spacer'
-    ) as HTMLElement;
-    const placeholderTotal = parseFloat(spacer.style.height);
-    expect(placeholderTotal).to.be.greaterThan(0);
-
-    // Flip the provider so cells return real (shorter) content.
-    returnContent = true;
-    el.refreshAllVisibleCells();
-    await el.updateComplete;
-
-    // Force a scroll event so syncBufferToScrollPosition re-measures.
-    window.dispatchEvent(new Event('scroll'));
-    await promisedSleep(200);
-    await el.updateComplete;
-
-    const contentTotal = parseFloat(spacer.style.height);
-    // After loading 20px content into all 50 cells we expect roughly
-    // 50/cols * 20 + gaps — definitely far less than the placeholder total.
-    expect(
-      contentTotal,
-      `spacer should shrink from ${placeholderTotal} towards content height`
-    ).to.be.lessThan(placeholderTotal * 0.6);
-  });
-
-  it('issue 3: spacer height updates after refreshAllVisibleCells without an explicit scroll', async () => {
-    let returnContent = false;
-    const cellProvider: InfiniteScrollerCellProviderInterface = {
-      cellForIndex: (index: number): TemplateResult | undefined =>
-        returnContent
-          ? html`<div style="height:20px">cell-${index}</div>`
-          : undefined,
-    };
-    const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller
-        style="--infiniteScrollerCellMinHeight:0"
-        .itemCount=${50}
-        .cellProvider=${cellProvider}
-        .placeholderCellTemplate=${html`<div style="height:200px">
-          loading
-        </div>`}
-      ></infinite-scroller>`
-    );
-    await el.bufferStabilized;
-
-    const spacer = el.shadowRoot?.querySelector(
-      '#scroll-spacer'
-    ) as HTMLElement;
-    const placeholderTotal = parseFloat(spacer.style.height);
-
-    returnContent = true;
-    el.refreshAllVisibleCells();
-    await el.updateComplete;
-    // No scroll event here, should still update.
-    await waitForFrame();
-    await el.updateComplete;
-
-    const contentTotal = parseFloat(spacer.style.height);
-    expect(
-      contentTotal,
-      `spacer should update without an explicit scroll (was ${placeholderTotal}, still ${contentTotal})`
-    ).to.be.lessThan(placeholderTotal * 0.8);
-  });
-
-  it('issue 4: does not dispatch bufferStabilized when disconnecting an already-stable scroller', async () => {
+  it('does not dispatch bufferStabilized when disconnecting an already-stable scroller', async () => {
     const el = await fixture<InfiniteScroller>(
       html`<infinite-scroller .itemCount=${100}></infinite-scroller>`
     );
@@ -1055,7 +1282,7 @@ describe('Review-finding regressions', () => {
     expect(fired).to.equal(false);
   });
 
-  it('issue 5: ResizeObserver continues to react after disconnect/reconnect', async () => {
+  it('ResizeObserver continues to react after disconnect/reconnect', async () => {
     const wrapper = await fixture<HTMLDivElement>(html`
       <div style="width:800px;height:600px;overflow:auto">
         <infinite-scroller .itemCount=${500}></infinite-scroller>
@@ -1074,7 +1301,7 @@ describe('Review-finding regressions', () => {
     await el.updateComplete;
     await promisedSleep(20);
 
-    // Now shrink the wrapper — this should fire the ResizeObserver and reduce
+    // Now shrink the wrapper. This should fire the ResizeObserver and reduce
     // the column count (or at least re-measure cachedColumnsPerRow).
     wrapper.style.width = '200px';
     await promisedSleep(100);
@@ -1087,24 +1314,7 @@ describe('Review-finding regressions', () => {
     ).to.be.lessThan(initialCols);
   });
 
-  it('issue 6: scrollThresholdReached fires exactly once when a listener is attached before stabilization', async () => {
-    const el = document.createElement('infinite-scroller') as InfiniteScroller;
-    let eventCount = 0;
-    el.addEventListener('scrollThresholdReached', () => {
-      eventCount += 1;
-    });
-    el.itemCount = 5;
-    document.body.appendChild(el);
-    try {
-      await el.bufferStabilized;
-      await promisedSleep(200);
-      expect(eventCount).to.equal(1);
-    } finally {
-      el.remove();
-    }
-  });
-
-  it('issue 9: bufferStabilized promise does not resolve before firstUpdated runs', async () => {
+  it('bufferStabilized promise does not resolve before firstUpdated runs', async () => {
     const el = document.createElement('infinite-scroller') as InfiniteScroller;
     el.itemCount = 100;
 
@@ -1130,244 +1340,22 @@ describe('Review-finding regressions', () => {
       el.remove();
     }
   });
+});
 
-  it('issue 13: animated scrollToCell lands at the target cell, not stranded short of it', async () => {
-    const cellProvider: InfiniteScrollerCellProviderInterface = {
-      cellForIndex: (index: number): TemplateResult | undefined =>
-        html`<div style="height:${50 + (index % 5) * 10}px">
-          cell-${index}
-        </div>`,
-    };
-    const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller
-        .itemCount=${2000}
-        .cellProvider=${cellProvider}
-      ></infinite-scroller>`
-    );
-    await el.bufferStabilized;
-
-    const result = await el.scrollToCell(1000, true);
-    expect(result).to.be.true;
-
-    // After the promise resolves, the smooth-scroll animation has settled
-    // (we wait for scrollend or the fallback timer). The target cell must
-    // still be in the rendered buffer AND its bounding rect should be at
-    // or near the top of the viewport — that's where scrollIntoView with
-    // default 'block: start' should leave it.
-    const target = el.shadowRoot?.querySelector(
-      '.cell-container[data-cell-index="1000"]'
-    ) as HTMLElement | null;
-    expect(target, 'target cell should remain buffered after smooth scroll').to
-      .exist;
-
-    const rect = target!.getBoundingClientRect();
-    // The target's top should be near the top of the viewport. Tolerate
-    // up to half a viewport of slop for browser-specific scroll behavior
-    // (sticky headers, grid alignment, etc.) but reject "stopped 90% of
-    // the way short" symptoms where the target is far below the viewport.
-    expect(
-      rect.top,
-      `target cell's viewport-top is ${rect.top.toFixed(1)} — animated ` +
-        `scrollToCell should land it near the top of the viewport, not far ` +
-        `below (which would indicate the smooth scroll was cancelled mid-flight).`
-    ).to.be.lessThan(window.innerHeight / 2);
+describe('Scroll anchoring', () => {
+  afterEach(() => {
+    window.scrollTo(0, 0);
   });
 
-  it('issue 19: placeholderRowHeight reflects placeholder-only rows, not row-mixed first sample', async () => {
-    // Cell 0 returns tall content immediately; the rest are placeholders.
-    // With cols >= 2, row 0 mixes a 200px content cell with placeholder cells
-    // that get inflated by the grid layout to match. The first placeholder
-    // by iteration order (cell 1) is in that inflated row — so capturing
-    // from it alone produces a biased ~200 estimate, even though the
-    // typical placeholder-only row is only ~50px tall.
-    const cellProvider: InfiniteScrollerCellProviderInterface = {
-      cellForIndex: (index: number): TemplateResult | undefined =>
-        index === 0
-          ? html`<div style="height:200px">cell-${index}</div>`
-          : undefined,
-    };
-    const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller
-        style="--infiniteScrollerCellMinHeight:0"
-        .itemCount=${100}
-        .cellProvider=${cellProvider}
-        .placeholderCellTemplate=${html`<div style="height:50px">loading</div>`}
-      ></infinite-scroller>`
-    );
-    await el.bufferStabilized;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const cols = (el as any).cachedColumnsPerRow as number;
-    if (cols < 2) {
-      // cols=1 puts every cell in its own row, so no row-mixing is possible
-      // and the bug scenario doesn't apply. Skip to keep the test stable
-      // across viewport widths.
-      return;
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ph = (el as any).placeholderRowHeight as number | undefined;
-    expect(ph, 'placeholderRowHeight should be set').to.be.a('number');
-    expect(
-      ph!,
-      `placeholderRowHeight ${ph} should reflect typical placeholder-only rows (~50)`
-    ).to.be.closeTo(50, 30);
-  });
-
-  it('issue 19 (regression): placeholderRowHeight is not poisoned by stale cellHeights from previously-content cells', async () => {
-    // This reproduces the scenario that broke the live demo: a user
-    // scrolls through a large list while it renders content (populating
-    // cellHeights across many rows), then switches behavior so future
-    // renders return placeholders. When previously-content cells re-enter
-    // the buffer as placeholders, their row's stale cellHeights entries
-    // shouldn't make `updatePlaceholderRowHeight` treat the row as mixed
-    // — that would leave the placeholder estimate permanently undefined
-    // and produce blank space in the viewport.
-    let phase: 1 | 2 = 1;
-    const cellProvider: InfiniteScrollerCellProviderInterface = {
-      cellForIndex: (i: number): TemplateResult | undefined => {
-        if (phase === 1) {
-          return html`<div style="height:200px">cell-${i}</div>`;
-        }
-        // Phase 2: only the first 10 cells return content; the rest go
-        // back to being placeholders.
-        return i < 10
-          ? html`<div style="height:200px">cell-${i}</div>`
-          : undefined;
-      },
-    };
-    const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller
-        style="--infiniteScrollerCellMinHeight:0"
-        .itemCount=${500}
-        .cellProvider=${cellProvider}
-        .placeholderCellTemplate=${html`<div style="height:50px">loading</div>`}
-      ></infinite-scroller>`
-    );
-    await el.bufferStabilized;
-
-    // Scroll through several positions in phase 1 to accumulate cellHeights
-    // entries spread across many rows.
-    await el.scrollToCell(100, false);
-    await el.updateComplete;
-    await el.scrollToCell(200, false);
-    await el.updateComplete;
-    await el.scrollToCell(300, false);
-    await el.updateComplete;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const cellHeightsSize = (el as any).cellHeights.size as number;
-    // We need a meaningful number of stale entries to exercise the
-    // mixed-row detection path. Assert this as a precondition rather
-    // than silently skipping — if the test's viewport stops producing
-    // enough cellHeights entries, we want to know rather than have the
-    // test report a false pass.
-    expect(
-      cellHeightsSize,
-      `precondition: scrolling through phase 1 should populate at least 50 ` +
-        `cellHeights entries to make the stale-detection test meaningful ` +
-        `(got ${cellHeightsSize})`
-    ).to.be.at.least(50);
-
-    // Phase 2: future renders return placeholders for high-index cells.
-    phase = 2;
-
-    // Scroll back to a previously-visited region. The cells there had
-    // their `cellHeights` entries set during phase 1, but with `phase=2`
-    // and the cells having left the buffer in the meantime, they
-    // re-enter as placeholders.
-    await el.scrollToCell(200, false);
-    await el.updateComplete;
-    await waitForFrame();
-    await el.updateComplete;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ph = (el as any).placeholderRowHeight as number | undefined;
-    expect(
-      ph,
-      'placeholderRowHeight should be set even with stale cellHeights'
-    ).to.be.a('number');
-    expect(
-      ph!,
-      `placeholderRowHeight ${ph} should reflect actual placeholders (~50), not undefined / inflated by stale measurements`
-    ).to.be.closeTo(50, 30);
-  });
-
-  it('issue 19 (regression 2): rowHeights reflect current placeholder rendering, not stale content measurements', async () => {
-    // Companion to the previous regression test, but checks the deeper
-    // staleness path: rowHeights derives from cellHeights, and a cell
-    // that was once content (with cellHeights[i]=200) but is now back
-    // in the buffer as a placeholder should not leave rowHeights pointing
-    // at the stale 200. Otherwise sumRowHeights would treat each row as
-    // content-sized, fits only ~half as many rows in the viewport as it
-    // should, and the buffer extension stops short — leaving blank space
-    // below the rendered placeholders.
-    let phase: 1 | 2 = 1;
-    const cellProvider: InfiniteScrollerCellProviderInterface = {
-      cellForIndex: (i: number): TemplateResult | undefined => {
-        if (phase === 1) {
-          return html`<div style="height:200px">cell-${i}</div>`;
-        }
-        return undefined;
-      },
-    };
-    const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller
-        style="--infiniteScrollerCellMinHeight:0"
-        .itemCount=${500}
-        .cellProvider=${cellProvider}
-        .placeholderCellTemplate=${html`<div style="height:50px">loading</div>`}
-      ></infinite-scroller>`
-    );
-    await el.bufferStabilized;
-
-    await el.scrollToCell(100, false);
-    await el.updateComplete;
-    await el.scrollToCell(200, false);
-    await el.updateComplete;
-    await el.scrollToCell(300, false);
-    await el.updateComplete;
-
-    phase = 2;
-
-    await el.scrollToCell(200, false);
-    await el.updateComplete;
-    await waitForFrame();
-    await el.updateComplete;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const cols = (el as any).cachedColumnsPerRow as number;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rowHeights = (el as any).rowHeights as Map<number, number>;
-
-    // Sample a few rows around the target. Any of them currently containing
-    // placeholders in the buffer should NOT still report the content-sized
-    // height (~200) — that would be a stale measurement.
-    const targetRow = Math.floor(200 / cols);
-    const stale: { row: number; height: number }[] = [];
-    for (let r = targetRow - 1; r <= targetRow + 1; r += 1) {
-      const h = rowHeights.get(r);
-      if (h !== undefined && h > 100) {
-        stale.push({ row: r, height: h });
-      }
-    }
-    expect(
-      stale,
-      `rowHeights for rows around row ${targetRow} should not still report ` +
-        `content-sized heights when cells are currently placeholders. ` +
-        `Stale entries: ${JSON.stringify(stale)}`
-    ).to.deep.equal([]);
-  });
-
-  it('issue 23: ScrollAnchor.capture + restore compensate for layout shifts', async () => {
-    // Direct unit test of the scroll-anchoring primitives on the
-    // internal ScrollAnchor helper. The integration scenario (buffer
-    // extension during upward scroll with stale rowHeights) is hard to
-    // reproduce deterministically in wtr due to accumulated test
-    // fixtures changing the document layout. Instead we exercise the
-    // primitives directly: an anchor captured before a simulated layout
-    // shift should drive a scrollTop adjustment afterward that returns
-    // the anchor cell to its captured viewport position.
+  it('ScrollAnchor.capture + restore compensate for layout shifts', async () => {
+    // Unit test of the ScrollAnchor primitives directly: an anchor
+    // captured before a simulated layout shift should drive a scrollTop
+    // adjustment afterward that returns the anchor cell to its captured
+    // viewport position. (The full integration scenario, buffer
+    // extension during upward scroll with stale rowHeights, is hard to
+    // reproduce deterministically with accumulated test fixtures
+    // changing the document layout; see the smoke test below for an
+    // end-to-end version.)
     const cellProvider: InfiniteScrollerCellProviderInterface = {
       cellForIndex: (i: number): TemplateResult | undefined =>
         html`<div style="height:80px">cell-${i}</div>`,
@@ -1413,18 +1401,17 @@ describe('Review-finding regressions', () => {
 
     expect(
       scrollDelta,
-      `restore() should have adjusted scrollY by ~-200 to compensate ` +
-        `for the 200px upward layout shift of the anchor (got ${scrollDelta}).`
+      `restore() should have adjusted scrollY by ~-200, got ${scrollDelta}`
     ).to.be.closeTo(-200, 5);
   });
 
-  it('issue 23: upward scroll does not yank the viewport forward when prior content rows enter the buffer (smoke)', async () => {
-    // Reproduces the live-testing symptom: the user browses content,
-    // enables placeholders, jumps to a far cell, then scrolls upward.
-    // Without scroll anchoring, the buffer extension that absorbs the
-    // previously-measured content rows shifts bufferOffsetY by far more
-    // than the user's scrollTop just moved, and the visible content
-    // leaps forward (higher-indexed cells appear at the viewport top).
+  it('upward scroll does not yank the viewport forward when prior content rows enter the buffer (smoke)', async () => {
+    // When the user browses content, enables placeholders, jumps to a
+    // far cell, then scrolls upward, the buffer extension that absorbs
+    // the previously-measured content rows can shift bufferOffsetY by
+    // far more than the user's scrollTop just moved. Without scroll
+    // anchoring the visible content leaps forward (higher-indexed cells
+    // appear at the viewport top).
     //
     // Test strategy: measure the anchor cell's exact viewport-relative
     // position (in pixels) before and after the upward scroll. With
@@ -1471,7 +1458,7 @@ describe('Review-finding regressions', () => {
     const cells = cellsOf(el);
     expect(cells.length, 'buffer should be populated').to.be.greaterThan(0);
 
-    // Find a cell that's roughly in the viewport — its bounding rect's top
+    // Find a cell that's roughly in the viewport. Its bounding rect's top
     // should be near 0 (top of viewport for a document scroller).
     let anchorCell: HTMLDivElement | null = null;
     for (const cell of cells) {
@@ -1502,9 +1489,7 @@ describe('Review-finding regressions', () => {
     // visible cell). Either way, surface it instead of silently passing.
     expect(
       anchorCell!.isConnected,
-      `anchor cell ${anchorIndex} should remain in the buffer after the ` +
-        `500px scroll-up — if it was evicted, pick an anchor further from ` +
-        `the buffer's leading edge.`
+      `anchor cell ${anchorIndex} was evicted from the buffer after the 500px scroll-up`
     ).to.equal(true);
     expect(Number(anchorCell!.dataset.cellIndex)).to.equal(anchorIndex);
 
@@ -1514,46 +1499,28 @@ describe('Review-finding regressions', () => {
     // content and pushes existing cells down). With the bug, the buffer
     // extension shifts bufferOffsetY by more than the user's scroll, so
     // the anchor cell moves by far less than 500 (often near 0, or even
-    // negative — disappearing off the top of the viewport). With
+    // negative, disappearing off the top of the viewport). With
     // anchoring applied, the anchor moves by the expected 500.
     const expectedTopChange = 500;
     const actualTopChange = topAfter - topBefore;
     const deviation = Math.abs(actualTopChange - expectedTopChange);
     expect(
       deviation,
-      `Anchor cell ${anchorIndex}: viewport-top change was ${actualTopChange.toFixed(
+      `anchor cell ${anchorIndex} viewport-top moved ${actualTopChange.toFixed(
         1
-      )}px ` +
-        `but should be close to ${expectedTopChange}px (a pure scroll with no layout shift). ` +
-        `Deviation of ${deviation.toFixed(
-          1
-        )}px indicates a buffer-shift-induced jump that ` +
-        `scroll anchoring should compensate for.`
+      )}px (expected ~${expectedTopChange}px)`
     ).to.be.lessThan(100);
   });
 
-  it('issue 24: refreshCell on a top-of-viewport placeholder does not visibly shift the rendered cells below it', async () => {
-    // Live-testing symptom: with placeholders enabled, user jumps to a
-    // far cell and scrolls upward fast enough that placeholders are
-    // visible at the top of the viewport. When those placeholders
-    // transition to (taller) real content, the rendered cells below
-    // them in the viewport get pushed downward — the user sees the
-    // content they were looking at jump down.
-    //
-    // Root cause: ScrollAnchor.capture was called inside
-    // scheduleScrollLayoutUpdate's rAF, AFTER removeCell+renderCellBuffer
-    // had synchronously updated the DOM. By then, the refreshed cells
-    // were already in renderedCellIndices, so capture selected the
-    // topmost newly-rendered cell as the anchor. That cell sits at the
-    // top of its (now-grown) row and didn't move relative to itself, so
-    // restore computed delta=0 — even though cells BELOW in the buffer
-    // visibly shifted down.
-    //
-    // Fix: capture the anchor SYNCHRONOUSLY at the start of refreshCell
-    // via captureIfEmpty, before the placeholder cells are added to
-    // renderedCellIndices. capture then walks past the still-placeholder
-    // cells and picks the first already-rendered cell below as anchor —
-    // which is the cell that actually shifts when above rows grow.
+  it('refreshCell on a top-of-viewport placeholder does not visibly shift the rendered cells below it', async () => {
+    // When in-viewport placeholders transition to taller real content,
+    // the rendered cells below them in the buffer must stay visually
+    // anchored; they shouldn't be pushed down by the row growth. The
+    // anchor cell has to be selected from cells that ALREADY render
+    // content (not from the cells whose content is being inserted right
+    // now), so that restore() compensates for the actual shift rather
+    // than for the freshly-grown row that contains the refreshed cell
+    // itself.
     const heights = new Map<number, number>();
     const cellProvider: InfiniteScrollerCellProviderInterface = {
       cellForIndex(i: number): TemplateResult | undefined {
@@ -1608,15 +1575,14 @@ describe('Review-finding regressions', () => {
     // Now "load" placeholders 200-202 that are IN the viewport at the top.
     // Their heights transition from 30px (placeholder) to 100px (content),
     // which grows the rows containing them. This pushes rendered cells
-    // below (in the viewport) down — the user-reported symptom.
+    // below (in the viewport) down: the user-reported symptom.
     const aboveIndices: number[] = [200, 201, 202];
     for (const i of aboveIndices) heights.set(i, 100);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const bufferStart = (el as any).bufferStart as number;
     expect(
       aboveIndices.length,
-      `should find at least one above-viewport placeholder to refresh ` +
-        `(bufferStart=${bufferStart}, anchorIndex=${anchorIndex})`
+      `no above-viewport placeholders to refresh (bufferStart=${bufferStart})`
     ).to.be.greaterThan(0);
 
     for (const i of aboveIndices) el.refreshCell(i);
@@ -1634,13 +1600,8 @@ describe('Review-finding regressions', () => {
     const delta = topAfter - topBefore;
     expect(
       Math.abs(delta),
-      `Visible rendered cell ${anchorIndex} should stay anchored when ` +
-        `in-viewport placeholders transition to taller content above it. ` +
-        `topBefore=${topBefore.toFixed(1)}, topAfter=${topAfter.toFixed(1)}, ` +
-        `delta=${delta.toFixed(1)}px (refreshed cells ${aboveIndices.join(
-          ','
-        )}, ` +
-        `bufferStart=${bufferStart}).`
+      `anchor cell ${anchorIndex} shifted ${delta.toFixed(1)}px ` +
+        `(top ${topBefore.toFixed(1)} → ${topAfter.toFixed(1)})`
     ).to.be.lessThan(20);
   });
 });
