@@ -1,4 +1,3 @@
-/* eslint-disable import/no-duplicates */
 import { expect, fixture, oneEvent } from '@open-wc/testing';
 import { html, TemplateResult } from 'lit';
 import {
@@ -10,8 +9,7 @@ import '../src/infinite-scroller';
 import { promisedSleep } from './promised-sleep';
 
 /**
- * Helper: wait for one animation frame + a microtask, matching the timing
- * used by scheduleSentinelRecheck (updateComplete → rAF).
+ * Wait for one animation frame + a microtask
  */
 function waitForFrame(): Promise<void> {
   return new Promise(resolve => requestAnimationFrame(() => resolve()));
@@ -38,7 +36,7 @@ const trivialCellProvider: InfiniteScrollerCellProviderInterface = {
 describe('Infinite Scroller', () => {
   it('should render with a sentinel and number of cells', async () => {
     const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller .itemCount=${3}></infinite-scroller>`
+      html`<infinite-scroller .itemCount=${3}></infinite-scroller>`,
     );
 
     const sentinel = el.shadowRoot?.querySelector('#sentinel');
@@ -49,7 +47,7 @@ describe('Infinite Scroller', () => {
 
   it('emits a cellSelected event when a tile is clicked', async () => {
     const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller .itemCount=${3}></infinite-scroller>`
+      html`<infinite-scroller .itemCount=${3}></infinite-scroller>`,
     );
     const cell = el.shadowRoot?.querySelector('.cell-container');
 
@@ -59,7 +57,7 @@ describe('Infinite Scroller', () => {
     });
     const event: CustomEvent<CellSelectionDetails> = await oneEvent(
       el,
-      'cellSelected'
+      'cellSelected',
     );
     expect(event).to.exist;
     expect(event.detail.index).to.equal(0);
@@ -75,7 +73,7 @@ describe('Infinite Scroller', () => {
       html`<infinite-scroller
         .itemCount=${3}
         .cellProvider=${cellProvider}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -96,7 +94,7 @@ describe('Infinite Scroller', () => {
       html`<infinite-scroller
         .itemCount=${3}
         .cellProvider=${cellProvider}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -122,7 +120,7 @@ describe('Infinite Scroller', () => {
       html`<infinite-scroller
         .itemCount=${3}
         .cellProvider=${cellProvider}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -145,7 +143,7 @@ describe('Infinite Scroller', () => {
         .itemCount=${5}
         .cellProvider=${cellProvider}
         scrollOptimizationsDisabled
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
 
     const cellsBefore = el.shadowRoot?.querySelectorAll('.cell-container');
@@ -170,7 +168,7 @@ describe('Infinite Scroller Virtualization', () => {
       html`<infinite-scroller
         .itemCount=${1000}
         .cellProvider=${cellProvider}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -182,13 +180,13 @@ describe('Infinite Scroller Virtualization', () => {
 
   it('renders scroll-spacer and transformed container in virtualized mode', async () => {
     const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`
+      html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
 
     const scrollSpacer = el.shadowRoot?.querySelector(
-      '#scroll-spacer'
+      '#scroll-spacer',
     ) as HTMLElement;
     const container = el.shadowRoot?.querySelector('#container') as HTMLElement;
     expect(scrollSpacer).to.exist;
@@ -203,7 +201,7 @@ describe('Infinite Scroller Virtualization', () => {
       html`<infinite-scroller
         .itemCount=${1000}
         .cellProvider=${cellProvider}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -212,7 +210,7 @@ describe('Infinite Scroller Virtualization', () => {
     expect(result).to.be.true;
 
     const targetCell = el.shadowRoot?.querySelector(
-      '.cell-container[data-cell-index="500"]'
+      '.cell-container[data-cell-index="500"]',
     );
     expect(targetCell).to.exist;
     expect(targetCell?.textContent).to.equal('cell-500');
@@ -220,7 +218,7 @@ describe('Infinite Scroller Virtualization', () => {
 
   it('scrollToCell returns false when index is out of bounds', async () => {
     const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`
+      html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -235,7 +233,7 @@ describe('Infinite Scroller Virtualization', () => {
       html`<infinite-scroller
         .itemCount=${1000}
         .cellProvider=${cellProvider}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
     await el.bufferStabilized;
 
@@ -252,11 +250,11 @@ describe('Infinite Scroller Virtualization', () => {
     }
     const cells = el.shadowRoot?.querySelectorAll('.cell-container');
     const firstIndex = Number(
-      (cells?.[0] as HTMLElement | undefined)?.dataset.cellIndex ?? '0'
+      (cells?.[0] as HTMLElement | undefined)?.dataset.cellIndex ?? '0',
     );
     expect(
       firstIndex % cols,
-      `bufferStart should be row-aligned (got firstIndex=${firstIndex}, cols=${cols})`
+      `bufferStart should be row-aligned (got firstIndex=${firstIndex}, cols=${cols})`,
     ).to.equal(0);
   });
 
@@ -271,7 +269,7 @@ describe('Infinite Scroller Virtualization', () => {
       html`<infinite-scroller
         .itemCount=${2000}
         .cellProvider=${cellProvider}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
     await el.bufferStabilized;
 
@@ -284,7 +282,7 @@ describe('Infinite Scroller Virtualization', () => {
     // or near the top of the viewport, where scrollIntoView with
     // default 'block: start' should leave it.
     const target = el.shadowRoot?.querySelector(
-      '.cell-container[data-cell-index="1000"]'
+      '.cell-container[data-cell-index="1000"]',
     ) as HTMLElement | null;
     expect(target, 'target cell should remain buffered after smooth scroll').to
       .exist;
@@ -297,8 +295,8 @@ describe('Infinite Scroller Virtualization', () => {
     expect(
       rect.top,
       `target cell ended up at viewport-top ${rect.top.toFixed(
-        1
-      )}, too far down`
+        1,
+      )}, too far down`,
     ).to.be.lessThan(window.innerHeight / 2);
   });
 
@@ -307,7 +305,7 @@ describe('Infinite Scroller Virtualization', () => {
       html`<infinite-scroller
         .itemCount=${50}
         scrollOptimizationsDisabled
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
 
     await el.updateComplete;
@@ -322,7 +320,7 @@ describe('Infinite Scroller Virtualization', () => {
 
   it('sets correct aria set attributes on buffered cells', async () => {
     const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`
+      html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -342,7 +340,7 @@ describe('Infinite Scroller Virtualization', () => {
       html`<infinite-scroller
         .itemCount=${1000}
         .cellProvider=${cellProvider}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -360,7 +358,7 @@ describe('Infinite Scroller Virtualization', () => {
 
   it('has correct data-cell-index attributes on buffered cells', async () => {
     const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`
+      html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -379,7 +377,7 @@ describe('Infinite Scroller Virtualization', () => {
       html`<infinite-scroller
         .itemCount=${1000}
         .cellProvider=${cellProvider}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -404,13 +402,13 @@ describe('Infinite Scroller Virtualization', () => {
       html`<infinite-scroller
         .itemCount=${1000}
         .cellProvider=${cellProvider}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
 
     const firstCell = el.shadowRoot?.querySelector(
-      '.cell-container[data-cell-index="0"]'
+      '.cell-container[data-cell-index="0"]',
     ) as HTMLDivElement;
     expect(firstCell).to.exist;
     expect(firstCell.textContent).to.equal('foo-0');
@@ -425,7 +423,7 @@ describe('Infinite Scroller Virtualization', () => {
 
     // Other cells should be unchanged
     const secondCell = el.shadowRoot?.querySelector(
-      '.cell-container[data-cell-index="1"]'
+      '.cell-container[data-cell-index="1"]',
     ) as HTMLDivElement;
     expect(secondCell.textContent).to.equal('foo-1');
   });
@@ -443,7 +441,7 @@ describe('Infinite Scroller Virtualization', () => {
       html`<infinite-scroller
         .itemCount=${1000}
         .cellProvider=${cellProvider}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -467,7 +465,7 @@ describe('Infinite Scroller Virtualization', () => {
 
   it('emits cellSelected event when cells are clicked', async () => {
     const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`
+      html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -481,20 +479,20 @@ describe('Infinite Scroller Virtualization', () => {
 
     const event: CustomEvent<CellSelectionDetails> = await oneEvent(
       el,
-      'cellSelected'
+      'cellSelected',
     );
     expect(event?.detail?.index).to.equal(0);
   });
 
   it('has non-zero spacer height when buffer does not cover all rows', async () => {
     const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`
+      html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
 
     const scrollSpacer = el.shadowRoot?.querySelector(
-      '#scroll-spacer'
+      '#scroll-spacer',
     ) as HTMLElement;
     expect(scrollSpacer).to.exist;
     expect(parseFloat(scrollSpacer.style.height)).to.be.greaterThan(0);
@@ -506,7 +504,7 @@ describe('Infinite Scroller Virtualization', () => {
       html`<infinite-scroller
         .itemCount=${5}
         .cellProvider=${cellProvider}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -515,7 +513,7 @@ describe('Infinite Scroller Virtualization', () => {
     expect(cells?.length).to.equal(5);
 
     const scrollSpacer = el.shadowRoot?.querySelector(
-      '#scroll-spacer'
+      '#scroll-spacer',
     ) as HTMLElement;
     const container = el.shadowRoot?.querySelector('#container') as HTMLElement;
     expect(parseFloat(scrollSpacer.style.height)).to.be.greaterThan(0);
@@ -524,7 +522,7 @@ describe('Infinite Scroller Virtualization', () => {
 
   it('does not render cells beyond itemCount', async () => {
     const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller .itemCount=${200}></infinite-scroller>`
+      html`<infinite-scroller .itemCount=${200}></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -545,7 +543,7 @@ describe('Infinite Scroller Virtualization', () => {
       html`<infinite-scroller
         .itemCount=${1000}
         .cellProvider=${cellProvider}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -571,7 +569,7 @@ describe('Infinite Scroller Virtualization', () => {
       html`<infinite-scroller
         .itemCount=${1000}
         .cellProvider=${cellProvider}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -588,7 +586,7 @@ describe('Infinite Scroller Virtualization', () => {
     // At scrollY=0 with bufferStart=0 there must be cells in the viewport.
     expect(
       visible.length,
-      'at least one cell must be visible at scrollY=0'
+      'at least one cell must be visible at scrollY=0',
     ).to.be.greaterThan(0);
     for (const idx of visible) {
       expect(idx).to.be.at.least(0);
@@ -606,7 +604,7 @@ describe('Infinite Scroller Virtualization', () => {
         .itemCount=${1000}
         .cellProvider=${cellProvider}
         .bufferMultiplier=${0}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -631,14 +629,14 @@ describe('Infinite Scroller Virtualization', () => {
         .itemCount=${5}
         .cellProvider=${cellProvider}
         .placeholderCellTemplate=${html`<div style="height:20px">loading</div>`}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
 
     // First cell should have placeholder content
     const firstCell = el.shadowRoot?.querySelector(
-      '.cell-container[data-cell-index="0"]'
+      '.cell-container[data-cell-index="0"]',
     ) as HTMLDivElement;
     expect(firstCell).to.exist;
     expect(firstCell.textContent).to.contain('loading');
@@ -654,7 +652,7 @@ describe('Infinite Scroller Virtualization', () => {
 
   it('buffer does not skip cell indices within its range (all contiguous)', async () => {
     const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`
+      html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -662,7 +660,7 @@ describe('Infinite Scroller Virtualization', () => {
     const cells = cellsOf(el);
     expect(
       cells.length,
-      'precondition: virtualized buffer should render multiple cells'
+      'precondition: virtualized buffer should render multiple cells',
     ).to.be.greaterThan(1);
     const indices = cells.map(c => Number(c.dataset.cellIndex));
     // Indices should be sorted and contiguous
@@ -681,7 +679,7 @@ describe('scrollThresholdReached sentinel behavior', () => {
     // When itemCount is small, the sentinel is initially already in the viewport,
     // so the event should fire immediately.
     const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller .itemCount=${5}></infinite-scroller>`
+      html`<infinite-scroller .itemCount=${5}></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -697,7 +695,7 @@ describe('scrollThresholdReached sentinel behavior', () => {
 
   it('fires scrollThresholdReached again after itemCount increases', async () => {
     const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller .itemCount=${5}></infinite-scroller>`
+      html`<infinite-scroller .itemCount=${5}></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -722,7 +720,7 @@ describe('scrollThresholdReached sentinel behavior', () => {
 
   it('does not rapid-fire when itemCount changes multiple times quickly', async () => {
     const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller .itemCount=${5}></infinite-scroller>`
+      html`<infinite-scroller .itemCount=${5}></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -741,7 +739,7 @@ describe('scrollThresholdReached sentinel behavior', () => {
     const numIterations = 10;
     for (let i = 0; i < numIterations; i += 1) {
       el.itemCount += 10;
-      // eslint-disable-next-line no-await-in-loop
+
       await el.updateComplete;
     }
 
@@ -760,13 +758,13 @@ describe('scrollThresholdReached sentinel behavior', () => {
       eventCount,
       `${numIterations} rapid itemCount changes produced ${
         eventCount - initialCount
-      } extra events; debouncing failed`
+      } extra events; debouncing failed`,
     ).to.be.lessThan(initialCount + numIterations / 2);
   });
 
   it('resets sentinel pending state after reload', async () => {
     const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller .itemCount=${5}></infinite-scroller>`
+      html`<infinite-scroller .itemCount=${5}></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -813,13 +811,13 @@ describe('Scroll layout and placeholder edge cases', () => {
 
   it('spacer height increases when itemCount grows', async () => {
     const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`
+      html`<infinite-scroller .itemCount=${1000}></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
 
     const scrollSpacer = el.shadowRoot?.querySelector(
-      '#scroll-spacer'
+      '#scroll-spacer',
     ) as HTMLElement;
     const initialHeight = parseFloat(scrollSpacer.style.height);
     expect(initialHeight).to.be.greaterThan(0);
@@ -842,7 +840,7 @@ describe('Scroll layout and placeholder edge cases', () => {
         .itemCount=${20}
         .cellProvider=${cellProvider}
         .placeholderCellTemplate=${html`<div class="placeholder">loading</div>`}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -865,7 +863,7 @@ describe('Scroll layout and placeholder edge cases', () => {
         .itemCount=${5}
         .cellProvider=${cellProvider}
         .placeholderCellTemplate=${html`<div class="ph">placeholder</div>`}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -906,12 +904,12 @@ describe('Scroll layout and placeholder edge cases', () => {
         .placeholderCellTemplate=${html`<div style="height:200px">
           loading
         </div>`}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
     await el.bufferStabilized;
 
     const spacer = el.shadowRoot?.querySelector(
-      '#scroll-spacer'
+      '#scroll-spacer',
     ) as HTMLElement;
     const placeholderTotal = parseFloat(spacer.style.height);
     expect(placeholderTotal).to.be.greaterThan(0);
@@ -931,7 +929,7 @@ describe('Scroll layout and placeholder edge cases', () => {
     // 50/cols * 20 + gaps, definitely far less than the placeholder total.
     expect(
       contentTotal,
-      `spacer should shrink from ${placeholderTotal} towards content height`
+      `spacer should shrink from ${placeholderTotal} towards content height`,
     ).to.be.lessThan(placeholderTotal * 0.6);
   });
 
@@ -951,12 +949,12 @@ describe('Scroll layout and placeholder edge cases', () => {
         .placeholderCellTemplate=${html`<div style="height:200px">
           loading
         </div>`}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
     await el.bufferStabilized;
 
     const spacer = el.shadowRoot?.querySelector(
-      '#scroll-spacer'
+      '#scroll-spacer',
     ) as HTMLElement;
     const placeholderTotal = parseFloat(spacer.style.height);
 
@@ -970,7 +968,7 @@ describe('Scroll layout and placeholder edge cases', () => {
     const contentTotal = parseFloat(spacer.style.height);
     expect(
       contentTotal,
-      `spacer should update without an explicit scroll (was ${placeholderTotal}, still ${contentTotal})`
+      `spacer should update without an explicit scroll (was ${placeholderTotal}, still ${contentTotal})`,
     ).to.be.lessThan(placeholderTotal * 0.8);
   });
 
@@ -993,7 +991,7 @@ describe('Scroll layout and placeholder edge cases', () => {
         .itemCount=${100}
         .cellProvider=${cellProvider}
         .placeholderCellTemplate=${html`<div style="height:50px">loading</div>`}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
     await el.bufferStabilized;
 
@@ -1011,7 +1009,7 @@ describe('Scroll layout and placeholder edge cases', () => {
     expect(ph, 'placeholderRowHeight should be set').to.be.a('number');
     expect(
       ph!,
-      `placeholderRowHeight ${ph} should reflect typical placeholder-only rows (~50)`
+      `placeholderRowHeight ${ph} should reflect typical placeholder-only rows (~50)`,
     ).to.be.closeTo(50, 30);
   });
 
@@ -1042,7 +1040,7 @@ describe('Scroll layout and placeholder edge cases', () => {
         .itemCount=${500}
         .cellProvider=${cellProvider}
         .placeholderCellTemplate=${html`<div style="height:50px">loading</div>`}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
     await el.bufferStabilized;
 
@@ -1064,7 +1062,7 @@ describe('Scroll layout and placeholder edge cases', () => {
     // test report a false pass.
     expect(
       cellHeightsSize,
-      `precondition: phase 1 should populate >=50 cellHeights entries (got ${cellHeightsSize})`
+      `precondition: phase 1 should populate >=50 cellHeights entries (got ${cellHeightsSize})`,
     ).to.be.at.least(50);
 
     // Phase 2: future renders return placeholders for high-index cells.
@@ -1083,11 +1081,11 @@ describe('Scroll layout and placeholder edge cases', () => {
     const ph = (el as any).placeholderRowHeight as number | undefined;
     expect(
       ph,
-      'placeholderRowHeight should be set even with stale cellHeights'
+      'placeholderRowHeight should be set even with stale cellHeights',
     ).to.be.a('number');
     expect(
       ph!,
-      `placeholderRowHeight ${ph} should reflect ~50 placeholders, not stale measurements`
+      `placeholderRowHeight ${ph} should reflect ~50 placeholders, not stale measurements`,
     ).to.be.closeTo(50, 30);
   });
 
@@ -1114,7 +1112,7 @@ describe('Scroll layout and placeholder edge cases', () => {
         .itemCount=${500}
         .cellProvider=${cellProvider}
         .placeholderCellTemplate=${html`<div style="height:50px">loading</div>`}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
     await el.bufferStabilized;
 
@@ -1151,8 +1149,8 @@ describe('Scroll layout and placeholder edge cases', () => {
     expect(
       stale,
       `stale content-sized rowHeights around row ${targetRow}: ${JSON.stringify(
-        stale
-      )}`
+        stale,
+      )}`,
     ).to.deep.equal([]);
   });
 });
@@ -1167,7 +1165,7 @@ describe('Buffer multiplier and estimatedCellHeight', () => {
         .itemCount=${10000}
         .cellProvider=${cellProvider}
         .bufferMultiplier=${0}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
     // Read the initial buffer size before stabilization settles
     await elSmall.updateComplete;
@@ -1179,7 +1177,7 @@ describe('Buffer multiplier and estimatedCellHeight', () => {
         .itemCount=${10000}
         .cellProvider=${cellProvider}
         .bufferMultiplier=${3}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
     await elLarge.updateComplete;
     const largeCount =
@@ -1196,12 +1194,12 @@ describe('Buffer multiplier and estimatedCellHeight', () => {
       html`<infinite-scroller
         .itemCount=${100}
         .estimatedCellHeight=${500}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
     // Read spacer height right after first render, before stabilization completes
     await elTall.updateComplete;
     const tallSpacer = elTall.shadowRoot?.querySelector(
-      '#scroll-spacer'
+      '#scroll-spacer',
     ) as HTMLElement;
     const tallHeight = parseFloat(tallSpacer.style.height);
 
@@ -1209,11 +1207,11 @@ describe('Buffer multiplier and estimatedCellHeight', () => {
       html`<infinite-scroller
         .itemCount=${100}
         .estimatedCellHeight=${50}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
     await elShort.updateComplete;
     const shortSpacer = elShort.shadowRoot?.querySelector(
-      '#scroll-spacer'
+      '#scroll-spacer',
     ) as HTMLElement;
     const shortHeight = parseFloat(shortSpacer.style.height);
 
@@ -1230,7 +1228,7 @@ describe('Lifecycle (connect/disconnect/stabilization)', () => {
       html`<infinite-scroller
         .itemCount=${1000}
         .cellProvider=${cellProvider}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
@@ -1253,21 +1251,21 @@ describe('Lifecycle (connect/disconnect/stabilization)', () => {
 
     const scrolled = await el.scrollToCell(500, false);
     expect(scrolled, 'scrollToCell should succeed after reconnect').to.equal(
-      true
+      true,
     );
 
     const target = el.shadowRoot?.querySelector(
-      '.cell-container[data-cell-index="500"]'
+      '.cell-container[data-cell-index="500"]',
     );
     expect(
       target,
-      'target cell should be in the buffer after reconnect + scrollToCell'
+      'target cell should be in the buffer after reconnect + scrollToCell',
     ).to.exist;
   });
 
   it('does not dispatch bufferStabilized when disconnecting an already-stable scroller', async () => {
     const el = await fixture<InfiniteScroller>(
-      html`<infinite-scroller .itemCount=${100}></infinite-scroller>`
+      html`<infinite-scroller .itemCount=${100}></infinite-scroller>`,
     );
     await el.bufferStabilized;
 
@@ -1310,7 +1308,7 @@ describe('Lifecycle (connect/disconnect/stabilization)', () => {
     const newCols = (el as any).cachedColumnsPerRow as number;
     expect(
       newCols,
-      `column count should drop after width shrinks (was ${initialCols}, now ${newCols})`
+      `column count should drop after width shrinks (was ${initialCols}, now ${newCols})`,
     ).to.be.lessThan(initialCols);
   });
 
@@ -1329,7 +1327,7 @@ describe('Lifecycle (connect/disconnect/stabilization)', () => {
 
     expect(
       resolved,
-      'bufferStabilized resolved before the element was even attached'
+      'bufferStabilized resolved before the element was even attached',
     ).to.equal(false);
 
     document.body.appendChild(el);
@@ -1365,7 +1363,7 @@ describe('Scroll anchoring', () => {
         style="--infiniteScrollerCellMinHeight:0"
         .itemCount=${200}
         .cellProvider=${cellProvider}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
     await el.bufferStabilized;
 
@@ -1380,7 +1378,7 @@ describe('Scroll anchoring', () => {
     expect(anchor.cell, 'anchor.cell should be a .cell-container').to.exist;
     expect(anchor.cell.classList.contains('cell-container')).to.equal(true);
     expect(anchor.viewportOffset, 'viewportOffset should be a number').to.be.a(
-      'number'
+      'number',
     );
 
     // Simulate a layout shift: change the container's translateY,
@@ -1401,7 +1399,7 @@ describe('Scroll anchoring', () => {
 
     expect(
       scrollDelta,
-      `restore() should have adjusted scrollY by ~-200, got ${scrollDelta}`
+      `restore() should have adjusted scrollY by ~-200, got ${scrollDelta}`,
     ).to.be.closeTo(-200, 5);
   });
 
@@ -1432,7 +1430,7 @@ describe('Scroll anchoring', () => {
         .itemCount=${2000}
         .cellProvider=${cellProvider}
         .placeholderCellTemplate=${html`<div style="height:58px">loading</div>`}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
     await el.bufferStabilized;
 
@@ -1489,7 +1487,7 @@ describe('Scroll anchoring', () => {
     // visible cell). Either way, surface it instead of silently passing.
     expect(
       anchorCell!.isConnected,
-      `anchor cell ${anchorIndex} was evicted from the buffer after the 500px scroll-up`
+      `anchor cell ${anchorIndex} was evicted from the buffer after the 500px scroll-up`,
     ).to.equal(true);
     expect(Number(anchorCell!.dataset.cellIndex)).to.equal(anchorIndex);
 
@@ -1507,8 +1505,8 @@ describe('Scroll anchoring', () => {
     expect(
       deviation,
       `anchor cell ${anchorIndex} viewport-top moved ${actualTopChange.toFixed(
-        1
-      )}px (expected ~${expectedTopChange}px)`
+        1,
+      )}px (expected ~${expectedTopChange}px)`,
     ).to.be.lessThan(100);
   });
 
@@ -1536,7 +1534,7 @@ describe('Scroll anchoring', () => {
         .itemCount=${500}
         .cellProvider=${cellProvider}
         .placeholderCellTemplate=${html`<div style="height:30px">loading</div>`}
-      ></infinite-scroller>`
+      ></infinite-scroller>`,
     );
     await el.bufferStabilized;
 
@@ -1582,7 +1580,7 @@ describe('Scroll anchoring', () => {
     const bufferStart = (el as any).bufferStart as number;
     expect(
       aboveIndices.length,
-      `no above-viewport placeholders to refresh (bufferStart=${bufferStart})`
+      `no above-viewport placeholders to refresh (bufferStart=${bufferStart})`,
     ).to.be.greaterThan(0);
 
     for (const i of aboveIndices) el.refreshCell(i);
@@ -1594,14 +1592,14 @@ describe('Scroll anchoring', () => {
 
     expect(
       anchorCell!.isConnected,
-      'anchor cell should still be in DOM after refresh batch'
+      'anchor cell should still be in DOM after refresh batch',
     ).to.equal(true);
     const topAfter = anchorCell!.getBoundingClientRect().top;
     const delta = topAfter - topBefore;
     expect(
       Math.abs(delta),
       `anchor cell ${anchorIndex} shifted ${delta.toFixed(1)}px ` +
-        `(top ${topBefore.toFixed(1)} → ${topAfter.toFixed(1)})`
+        `(top ${topBefore.toFixed(1)} → ${topAfter.toFixed(1)})`,
     ).to.be.lessThan(20);
   });
 });

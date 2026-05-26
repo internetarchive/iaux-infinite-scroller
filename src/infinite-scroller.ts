@@ -312,11 +312,11 @@ export class InfiniteScroller
   private sentinelEventPending = false;
 
   private sentinelIntersectionObserver = new IntersectionObserver(
-    this.handleSentinelIntersection.bind(this)
+    this.handleSentinelIntersection.bind(this),
   );
 
   private cellIntersectionObserver = new IntersectionObserver(
-    this.handleCellIntersection.bind(this)
+    this.handleCellIntersection.bind(this),
   );
 
   /**
@@ -488,7 +488,7 @@ export class InfiniteScroller
     const minBufferIndex = Math.max(minVisibleIndex - cellBufferSize, 0);
     const maxBufferIndex = Math.min(
       maxVisibleIndex + cellBufferSize,
-      this.itemCount - 1
+      this.itemCount - 1,
     );
     return generateRange(minBufferIndex, maxBufferIndex, 1);
   }
@@ -558,7 +558,7 @@ export class InfiniteScroller
     }
 
     this.cellContainers.forEach(cell =>
-      this.cellIntersectionObserver.observe(cell)
+      this.cellIntersectionObserver.observe(cell),
     );
 
     if (!this.scrollListenersActive) {
@@ -579,7 +579,7 @@ export class InfiniteScroller
       this.processVisibleCells();
     } else {
       this.cellContainers.forEach(cell =>
-        this.cellIntersectionObserver.observe(cell)
+        this.cellIntersectionObserver.observe(cell),
       );
     }
   }
@@ -591,7 +591,7 @@ export class InfiniteScroller
    * so the event can fire again after more content loads.
    */
   private handleSentinelIntersection(
-    entries: IntersectionObserverEntry[]
+    entries: IntersectionObserverEntry[],
   ): void {
     entries.forEach(entry => {
       if (entry.isIntersecting && !this.sentinelIsIntersecting) {
@@ -1024,7 +1024,7 @@ export class InfiniteScroller
    */
   private computeInitialBufferEnd(): number {
     const estimatedVisibleRows = Math.ceil(
-      window.innerHeight / this.defaultRowHeight
+      window.innerHeight / this.defaultRowHeight,
     );
     const minBuffer = this.minBufferSize * 2;
     const proportionalBuffer =
@@ -1033,7 +1033,7 @@ export class InfiniteScroller
       this.cachedColumnsPerRow;
     return Math.min(
       Math.max(minBuffer, proportionalBuffer),
-      this.itemCount - 1
+      this.itemCount - 1,
     );
   }
 
@@ -1085,10 +1085,10 @@ export class InfiniteScroller
     this.totalContentHeight = this.rowHeightCache.sumRowHeights(
       0,
       totalRows - 1,
-      rowGap
+      rowGap,
     );
     const bufferStartRow = Math.floor(
-      this.bufferStart / this.cachedColumnsPerRow
+      this.bufferStart / this.cachedColumnsPerRow,
     );
     // sumRowHeights(0, k-1) returns sum(heights) + (k-1) * rowGap.
     // Row k's top edge is at sum(heights) + k*rowGap, so add one rowGap.
@@ -1150,7 +1150,7 @@ export class InfiniteScroller
    * regardless of errors, so the next batch can start.
    */
   private async runScrollLayoutUpdate(
-    anchor: ScrollAnchorPoint | null
+    anchor: ScrollAnchorPoint | null,
   ): Promise<void> {
     try {
       await new Promise(r => requestAnimationFrame(r));
@@ -1270,7 +1270,7 @@ export class InfiniteScroller
     const { firstVisibleRow, lastVisibleRow } = this.findVisibleRowRange(
       viewport.relativeScrollTop,
       viewport.relativeScrollBottom,
-      totalRows
+      totalRows,
     );
     if (this.bufferHasSufficientMargin(firstVisibleRow, lastVisibleRow)) return;
 
@@ -1278,7 +1278,7 @@ export class InfiniteScroller
       firstVisibleRow,
       lastVisibleRow,
       totalRows,
-      viewport.viewportHeight
+      viewport.viewportHeight,
     );
     if (newStart === this.bufferStart && newEnd === this.bufferEnd) return;
 
@@ -1354,7 +1354,7 @@ export class InfiniteScroller
   private findVisibleRowRange(
     relativeScrollTop: number,
     relativeScrollBottom: number,
-    totalRows: number
+    totalRows: number,
   ): { firstVisibleRow: number; lastVisibleRow: number } {
     const { rowGap } = this;
     let heightSoFar = 0;
@@ -1391,7 +1391,7 @@ export class InfiniteScroller
    */
   private bufferHasSufficientMargin(
     firstVisibleRow: number,
-    lastVisibleRow: number
+    lastVisibleRow: number,
   ): boolean {
     const cols = this.cachedColumnsPerRow;
     const minBufferRows = Math.ceil(this.minBufferSize / cols);
@@ -1401,7 +1401,7 @@ export class InfiniteScroller
 
     const currentStartRow = Math.floor(this.bufferStart / cols);
     const currentEndRow = Math.floor(
-      Math.min(this.bufferEnd, this.itemCount - 1) / cols
+      Math.min(this.bufferEnd, this.itemCount - 1) / cols,
     );
     const minMargin = Math.max(2, Math.floor(bufferRows / 3));
     return (
@@ -1422,7 +1422,7 @@ export class InfiniteScroller
     firstVisibleRow: number,
     lastVisibleRow: number,
     totalRows: number,
-    viewportHeight: number
+    viewportHeight: number,
   ): { newStart: number; newEnd: number } {
     const cols = this.cachedColumnsPerRow;
     const { rowGap } = this;
@@ -1450,11 +1450,11 @@ export class InfiniteScroller
     // Apply count-based floor from minBufferSize
     newStartRow = Math.min(
       newStartRow,
-      Math.max(0, firstVisibleRow - minBufferRows)
+      Math.max(0, firstVisibleRow - minBufferRows),
     );
     newEndRow = Math.max(
       newEndRow,
-      Math.min(totalRows - 1, lastVisibleRow + minBufferRows)
+      Math.min(totalRows - 1, lastVisibleRow + minBufferRows),
     );
 
     return {
@@ -1506,7 +1506,7 @@ export class InfiniteScroller
                   if (e.key === 'Enter') this.cellSelected(e, index);
                 }}
               ></article>
-            `
+            `,
           )}
           ${this.bufferEnd >= this.itemCount - 1
             ? html`<slot name="result-last-tile"></slot>`
@@ -1540,7 +1540,7 @@ export class InfiniteScroller
                 if (e.key === 'Enter') this.cellSelected(e, index);
               }}
             ></article>
-          `
+          `,
         )}
         <slot name="result-last-tile"></slot>
       </section>
@@ -1575,7 +1575,7 @@ export class InfiniteScroller
         detail: {
           visibleCellIndices: Array.from(this.visibleCellIndices),
         },
-      })
+      }),
     );
   }
 
@@ -1618,7 +1618,7 @@ export class InfiniteScroller
         // and buffer offset.
         if (this.rowHeightCache.deleteCellHeight(index)) {
           this.rowHeightCache.recalculateRowHeight(
-            Math.floor(index / this.cachedColumnsPerRow)
+            Math.floor(index / this.cachedColumnsPerRow),
           );
         }
       }
@@ -1631,7 +1631,7 @@ export class InfiniteScroller
   private removeCellsOutsideBufferRange(bufferRange: number[]) {
     const bufferSet = new Set(bufferRange);
     const renderedUnbufferedCells = Array.from(this.renderedCellIndices).filter(
-      index => !bufferSet.has(index)
+      index => !bufferSet.has(index),
     );
 
     renderedUnbufferedCells.forEach(index => {
