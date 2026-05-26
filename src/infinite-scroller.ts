@@ -20,10 +20,7 @@ import {
   findScrollContainer,
   isDocumentScroller,
 } from './internal/scroll-container-utils';
-import {
-  INITIAL_ROW_HEIGHT,
-  RowHeightCache,
-} from './internal/row-height-cache';
+import { RowHeightCache } from './internal/row-height-cache';
 import { ScrollAnchor, ScrollAnchorPoint } from './internal/scroll-anchor';
 import { generateRange } from './internal/range-generator';
 
@@ -136,6 +133,14 @@ export type CellSelectionDetails = {
   index: number;
   originalEvent: Event;
 };
+
+/**
+ * Fallback row height in pixels, used when no `estimatedCellHeight`
+ * is given by the consumer and no container is mounted yet.
+ * Chosen to over- rather than under-estimate, so we don't end up
+ * with a too-short scrollbar.
+ */
+const INITIAL_ROW_HEIGHT = 300;
 
 @customElement('infinite-scroller')
 export class InfiniteScroller

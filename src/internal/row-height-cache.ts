@@ -1,11 +1,4 @@
 /**
- * Initial fallback height in pixels, used before any real cell measurements
- * are available. Picked to over- rather than under-estimate, so that we don't
- * end up with a too-short scrollbar.
- */
-export const INITIAL_ROW_HEIGHT = 300;
-
-/**
  * Encapsulates the cell- and row-height tracking for the virtualized scroller.
  * Can be used to record cell heights whenever they change, and calculate (or
  * estimate) the corresponding row heights based on the maximum cell height in
@@ -23,7 +16,7 @@ export class RowHeightCache {
 
   private _columnsPerRow = 1;
 
-  constructor(initialDefaultRowHeight = INITIAL_ROW_HEIGHT) {
+  constructor(initialDefaultRowHeight: number) {
     this._defaultRowHeight = initialDefaultRowHeight;
   }
 
