@@ -55,6 +55,7 @@ export class AppRoot
     if (usingPlaceholders && !this.loadedCells.has(index)) {
       if (!this.pendingCells.has(index)) {
         this.pendingCells.add(index);
+        console.log('added cell to pending:', index);
         setTimeout(() => {
           this.pendingCells.delete(index);
           if (!this.loadedCells.has(index)) {
@@ -95,7 +96,8 @@ export class AppRoot
           >
             Tile 2
           </button>
-          Placeholders: <input type="checkbox" id="placeholdersCheckbox" />
+          Placeholders:
+          <input type="checkbox" id="placeholdersCheckbox" checked />
         </div>
         <div>
           <form @submit=${this.scrollToCell}>
@@ -109,6 +111,7 @@ export class AppRoot
 
       <infinite-scroller
         .itemCount=${5000}
+        .estimatedCellHeight=${80}
         .cellProvider=${this}
         .placeholderCellTemplate=${this.placeholderTemplate}
         @scrollThresholdReached=${this.scrollThresholdReached}
@@ -122,6 +125,10 @@ export class AppRoot
       display: block;
       color: white;
       font-size: 1.6rem;
+    }
+
+    #dev-tools {
+      margin-bottom: 10px;
     }
 
     .cell {
