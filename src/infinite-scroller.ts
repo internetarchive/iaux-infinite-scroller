@@ -14,6 +14,7 @@ import {
   queryAll,
   state,
 } from 'lit/decorators.js';
+import { keyed } from 'lit/directives/keyed.js';
 import { map } from 'lit/directives/map.js';
 import {
   findScrollContainer,
@@ -1504,7 +1505,10 @@ export class InfiniteScroller
               @click=${this.handleCellClick}
               @keyup=${this.handleCellKeyup}
             >
-              ${cellTemplate ?? this.placeholderCellTemplate ?? nothing}
+              ${keyed(
+                index,
+                cellTemplate ?? this.placeholderCellTemplate ?? nothing,
+              )}
             </article>`;
           })}
           ${this.bufferEnd >= this.itemCount - 1
@@ -1536,7 +1540,10 @@ export class InfiniteScroller
             @click=${this.handleCellClick}
             @keyup=${this.handleCellKeyup}
           >
-            ${cellTemplate ?? this.placeholderCellTemplate ?? nothing}
+            ${keyed(
+              index,
+              cellTemplate ?? this.placeholderCellTemplate ?? nothing,
+            )}
           </article>`;
         })}
         <slot name="result-last-tile"></slot>
