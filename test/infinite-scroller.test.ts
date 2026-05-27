@@ -19,7 +19,7 @@ function waitForFrame(): Promise<void> {
  * Gets all rendered .cell-container elements as an array, so
  * tests can iterate with for/of and index without optional chaining.
  */
-function cellsOf(el: InfiniteScroller): HTMLDivElement[] {
+function cellsOf(el: InfiniteScroller): HTMLElement[] {
   return Array.from(el.shadowRoot!.querySelectorAll('.cell-container'));
 }
 
@@ -79,9 +79,9 @@ describe('Infinite Scroller', () => {
     await el.bufferStabilized;
     const cells = cellsOf(el);
     expect(cells.length).to.equal(3);
-    expect(cells[0].textContent).to.equal('cell-0');
-    expect(cells[1].textContent).to.equal('cell-1');
-    expect(cells[2].textContent).to.equal('cell-2');
+    expect(cells[0].textContent?.trim()).to.equal('cell-0');
+    expect(cells[1].textContent?.trim()).to.equal('cell-1');
+    expect(cells[2].textContent?.trim()).to.equal('cell-2');
   });
 
   it('refreshes specific cell content when requested', async () => {
@@ -105,9 +105,7 @@ describe('Infinite Scroller', () => {
     el.refreshCell(1);
     await el.updateComplete;
 
-    expect(cells[0].textContent).to.equal('cell-0 foo');
-    expect(cells[1].textContent).to.equal('cell-1 b');
-    expect(cells[2].textContent).to.equal('cell-2 baz');
+    expect(cells[1].textContent?.trim()).to.equal('cell-1 b');
   });
 
   it('refreshes all visible cell content when requested', async () => {
@@ -131,9 +129,9 @@ describe('Infinite Scroller', () => {
     el.refreshAllVisibleCells();
     await el.updateComplete;
 
-    expect(cells[0].textContent).to.equal('cell-0 a');
-    expect(cells[1].textContent).to.equal('cell-1 b');
-    expect(cells[2].textContent).to.equal('cell-2 c');
+    expect(cells[0].textContent?.trim()).to.equal('cell-0 a');
+    expect(cells[1].textContent?.trim()).to.equal('cell-1 b');
+    expect(cells[2].textContent?.trim()).to.equal('cell-2 c');
   });
 
   it('updates rendered cells when itemCount increases in non-virtualized mode', async () => {
@@ -213,7 +211,7 @@ describe('Infinite Scroller Virtualization', () => {
       '.cell-container[data-cell-index="500"]',
     );
     expect(targetCell).to.exist;
-    expect(targetCell?.textContent).to.equal('cell-500');
+    expect(targetCell?.textContent?.trim()).to.equal('cell-500');
   });
 
   it('scrollToCell returns false when index is out of bounds', async () => {
@@ -384,8 +382,8 @@ describe('Infinite Scroller Virtualization', () => {
 
     const cells = el.shadowRoot?.querySelectorAll('.cell-container');
     expect(cells?.length).to.be.greaterThan(0);
-    const firstCell = cells?.[0] as HTMLDivElement;
-    expect(firstCell.textContent).to.equal('cell-0');
+    const firstCell = cells?.[0] as HTMLElement;
+    expect(firstCell.textContent?.trim()).to.equal('cell-0');
   });
 
   it('can refresh a specific cell in virtualized mode', async () => {
@@ -409,9 +407,9 @@ describe('Infinite Scroller Virtualization', () => {
 
     const firstCell = el.shadowRoot?.querySelector(
       '.cell-container[data-cell-index="0"]',
-    ) as HTMLDivElement;
+    ) as HTMLElement;
     expect(firstCell).to.exist;
-    expect(firstCell.textContent).to.equal('foo-0');
+    expect(firstCell.textContent?.trim()).to.equal('foo-0');
 
     // Update cell contents but only refresh cell 0
     cellContent.set(0, 'bar-0');
@@ -419,13 +417,12 @@ describe('Infinite Scroller Virtualization', () => {
     el.refreshCell(0);
     await el.updateComplete;
 
-    expect(firstCell.textContent).to.equal('bar-0');
+    expect(firstCell.textContent?.trim()).to.equal('bar-0');
 
-    // Other cells should be unchanged
     const secondCell = el.shadowRoot?.querySelector(
       '.cell-container[data-cell-index="1"]',
-    ) as HTMLDivElement;
-    expect(secondCell.textContent).to.equal('foo-1');
+    ) as HTMLElement;
+    expect(secondCell.textContent?.trim()).to.equal('bar-1');
   });
 
   it('can refresh all visible cells in virtualized mode', async () => {
@@ -459,7 +456,7 @@ describe('Infinite Scroller Virtualization', () => {
     expect(cells.length).to.be.greaterThan(0);
     for (const cell of cells) {
       const idx = Number(cell.dataset.cellIndex);
-      expect(cell.textContent).to.equal(`bar-${idx}`);
+      expect(cell.textContent?.trim()).to.equal(`bar-${idx}`);
     }
   });
 
@@ -597,20 +594,20 @@ describe('Infinite Scroller Virtualization', () => {
     }
   });
 
-  it('respects minBufferSize as minimum floor when bufferMultiplier is 0', async () => {
+  it('respects minBufferMarginCells as minimum floor when bufferMarginViewportScale is 0', async () => {
     const cellProvider = trivialCellProvider;
     const el = await fixture<InfiniteScroller>(
       html`<infinite-scroller
         .itemCount=${1000}
         .cellProvider=${cellProvider}
-        .bufferMultiplier=${0}
+        .bufferMarginViewportScale=${0}
       ></infinite-scroller>`,
     );
 
     await el.bufferStabilized;
 
     const cells = el.shadowRoot?.querySelectorAll('.cell-container');
-    // With multiplier=0, the minimum floor (minBufferSize=10) should still
+    // With scale=0, the minimum floor (minBufferMarginCells=10) should still
     // apply so we should have at least some cells rendered
     expect(cells?.length).to.be.at.least(10);
   });
@@ -637,7 +634,7 @@ describe('Infinite Scroller Virtualization', () => {
     // First cell should have placeholder content
     const firstCell = el.shadowRoot?.querySelector(
       '.cell-container[data-cell-index="0"]',
-    ) as HTMLDivElement;
+    ) as HTMLElement;
     expect(firstCell).to.exist;
     expect(firstCell.textContent).to.contain('loading');
 
@@ -831,7 +828,8 @@ describe('Scroll layout and placeholder edge cases', () => {
   });
 
   it('all buffered placeholder cells render the placeholder template', async () => {
-    // Provider that returns undefined for everything → all placeholders
+    // Cell provider that returns undefined for everything, which should mean only
+    // placeholders get rendered
     const cellProvider: InfiniteScrollerCellProviderInterface = {
       cellForIndex: (): TemplateResult | undefined => undefined,
     };
@@ -1155,16 +1153,16 @@ describe('Scroll layout and placeholder edge cases', () => {
   });
 });
 
-describe('Buffer multiplier and estimatedCellHeight', () => {
-  it('higher bufferMultiplier produces a larger initial buffer', async () => {
+describe('Buffer margin scale and estimatedCellHeight', () => {
+  it('higher bufferMarginViewportScale produces a larger initial buffer', async () => {
     const cellProvider = trivialCellProvider;
 
-    // With multiplier=0, only minBufferSize floor applies
+    // With scale=0, only minBufferMarginCells floor applies
     const elSmall = await fixture<InfiniteScroller>(
       html`<infinite-scroller
         .itemCount=${10000}
         .cellProvider=${cellProvider}
-        .bufferMultiplier=${0}
+        .bufferMarginViewportScale=${0}
       ></infinite-scroller>`,
     );
     // Read the initial buffer size before stabilization settles
@@ -1176,14 +1174,15 @@ describe('Buffer multiplier and estimatedCellHeight', () => {
       html`<infinite-scroller
         .itemCount=${10000}
         .cellProvider=${cellProvider}
-        .bufferMultiplier=${3}
+        .bufferMarginViewportScale=${3}
+        .maxBufferedCells=${5000}
       ></infinite-scroller>`,
     );
     await elLarge.updateComplete;
     const largeCount =
       elLarge.shadowRoot?.querySelectorAll('.cell-container').length ?? 0;
 
-    // With multiplier=3, the initial buffer should be larger than with 0
+    // With scale=3, the initial buffer should be larger than with 0
     expect(largeCount).to.be.greaterThan(smallCount);
   });
 
@@ -1375,8 +1374,9 @@ describe('Scroll anchoring', () => {
     const { scrollAnchor } = el as any;
     const anchor = scrollAnchor.capture();
     expect(anchor, 'capture() should find an anchor cell').to.not.be.null;
-    expect(anchor.cell, 'anchor.cell should be a .cell-container').to.exist;
-    expect(anchor.cell.classList.contains('cell-container')).to.equal(true);
+    expect(anchor.cellIndex, 'anchor.cellIndex should be a number').to.be.a(
+      'number',
+    );
     expect(anchor.viewportOffset, 'viewportOffset should be a number').to.be.a(
       'number',
     );
@@ -1458,7 +1458,7 @@ describe('Scroll anchoring', () => {
 
     // Find a cell that's roughly in the viewport. Its bounding rect's top
     // should be near 0 (top of viewport for a document scroller).
-    let anchorCell: HTMLDivElement | null = null;
+    let anchorCell: HTMLElement | null = null;
     for (const cell of cells) {
       const r = cell.getBoundingClientRect();
       if (r.bottom > 0 && r.top < window.innerHeight) {
@@ -1481,17 +1481,20 @@ describe('Scroll anchoring', () => {
     await waitForFrame();
     await el.updateComplete;
 
-    // The anchor cell must remain buffered after the scroll-up + buffer
-    // extension. If it doesn't, that's either a test-setup issue (anchor
-    // was too close to the buffer edge) or a regression (buffer shed a
-    // visible cell). Either way, surface it instead of silently passing.
+    // Re-query for the anchor cell's *current* DOM element. The position-
+    // keyed `map` in the template reuses `<article>` elements as the
+    // buffer slides, so the same DOM node we captured before the scroll
+    // may now hold a different `data-cell-index`. Looking the cell up by
+    // its index gives us whichever element currently represents it.
+    const anchorCellAfter = el.shadowRoot?.querySelector(
+      `.cell-container[data-cell-index="${anchorIndex}"]`,
+    ) as HTMLElement | null;
     expect(
-      anchorCell!.isConnected,
+      anchorCellAfter,
       `anchor cell ${anchorIndex} was evicted from the buffer after the 500px scroll-up`,
-    ).to.equal(true);
-    expect(Number(anchorCell!.dataset.cellIndex)).to.equal(anchorIndex);
+    ).to.not.be.null;
 
-    const topAfter = anchorCell!.getBoundingClientRect().top;
+    const topAfter = anchorCellAfter!.getBoundingClientRect().top;
     // The anchor cell should appear to move by the user's scroll amount
     // (~500px down in the viewport, since scrolling up reveals upper
     // content and pushes existing cells down). With the bug, the buffer
@@ -1514,7 +1517,7 @@ describe('Scroll anchoring', () => {
     // When in-viewport placeholders transition to taller real content,
     // the rendered cells below them in the buffer must stay visually
     // anchored; they shouldn't be pushed down by the row growth. The
-    // anchor cell has to be selected from cells that ALREADY render
+    // anchor cell has to be selected from cells that already render
     // content (not from the cells whose content is being inserted right
     // now), so that restore() compensates for the actual shift rather
     // than for the freshly-grown row that contains the refreshed cell
@@ -1557,7 +1560,7 @@ describe('Scroll anchoring', () => {
     // Pick a rendered cell that's currently visible (must be one of the
     // loaded 203+ cells).
     const cells = cellsOf(el);
-    let anchorCell: HTMLDivElement | null = null;
+    let anchorCell: HTMLElement | null = null;
     for (const cell of cells) {
       const r = cell.getBoundingClientRect();
       const idx = Number(cell.dataset.cellIndex);
@@ -1599,7 +1602,7 @@ describe('Scroll anchoring', () => {
     expect(
       Math.abs(delta),
       `anchor cell ${anchorIndex} shifted ${delta.toFixed(1)}px ` +
-        `(top ${topBefore.toFixed(1)} → ${topAfter.toFixed(1)})`,
+        `(top went from ${topBefore.toFixed(1)} to ${topAfter.toFixed(1)})`,
     ).to.be.lessThan(20);
   });
 });

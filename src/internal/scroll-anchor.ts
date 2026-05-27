@@ -6,7 +6,7 @@ import { isDocumentScroller } from './scroll-container-utils';
  * so that the same cell ends up at the same viewport-relative position.
  */
 export type ScrollAnchorPoint = {
-  cell: HTMLDivElement;
+  cellIndex: number;
   viewportOffset: number;
 };
 
@@ -19,10 +19,19 @@ export interface ScrollAnchorHostInterface {
   getScrollContainer(): Element;
 
   /** All cell containers currently in DOM order. */
-  getCellContainers(): Iterable<HTMLDivElement>;
+  getCellContainers(): Iterable<HTMLElement>;
 
-  /** Indices of cells whose content (not placeholder) is currently rendered. */
-  getRenderedCellIndices(): ReadonlySet<number>;
+  /**
+   * Finds the cell container for the given index, or null if that cell
+   * is not currently in the buffer.
+   */
+  getCellByIndex(cellIndex: number): HTMLElement | null;
+
+  /**
+   * True if this cell is currently rendering real content (not a placeholder).
+   * Used at capture-time to prefer anchoring on stable content cells.
+   */
+  isCellRendered(cell: Element): boolean;
 
   /**
    * Returns false when anchor capture should short-circuit, typically
@@ -79,41 +88,31 @@ export class ScrollAnchor {
       ? window.innerHeight
       : viewportTop + scrollContainer.clientHeight;
 
-    const renderedIndices = this.host.getRenderedCellIndices();
-    const hasRenderedCells = renderedIndices.size > 0;
-
     let visibleFallback: ScrollAnchorPoint | null = null;
     let belowRendered: ScrollAnchorPoint | null = null;
     for (const cell of this.host.getCellContainers()) {
-      const rect = cell.getBoundingClientRect();
       const idxStr = cell.dataset.cellIndex;
-      if (idxStr === undefined) {
-        // No cellIndex on this element, skip
-      } else {
-        const idx = Number(idxStr);
-        const anchor: ScrollAnchorPoint = {
-          cell,
-          viewportOffset: rect.top - viewportTop,
-        };
-        if (rect.bottom < viewportTop) {
-          // Still fully above the viewport; skip.
-        } else if (rect.top >= viewportBottom) {
-          // Below the viewport. If we reach this point and find a rendered
-          // cell we should use it.
-          if (hasRenderedCells && renderedIndices.has(idx)) {
-            belowRendered = anchor;
-            break;
-          }
-        } else if (hasRenderedCells && renderedIndices.has(idx)) {
-          // Best case: visible & rendered, return immediately.
-          return anchor;
-        } else if (!visibleFallback) {
-          // Visible but only rendering a placeholder at best.
-          // If no cells are rendered, this is the best we can do, so short-circuit.
-          // Otherwise save it as a fallback.
-          visibleFallback = anchor;
-          if (!hasRenderedCells) return visibleFallback;
+      if (idxStr === undefined) continue;
+      const rect = cell.getBoundingClientRect();
+      const anchor: ScrollAnchorPoint = {
+        cellIndex: parseInt(idxStr, 10),
+        viewportOffset: rect.top - viewportTop,
+      };
+      if (rect.bottom < viewportTop) {
+        // Still fully above the viewport; skip.
+      } else if (rect.top >= viewportBottom) {
+        // Below the viewport. The first rendered cell we find here
+        // is a good fallback for when nothing visible is rendered.
+        if (this.host.isCellRendered(cell)) {
+          belowRendered = anchor;
+          break;
         }
+      } else if (this.host.isCellRendered(cell)) {
+        // Best case: visible & rendered, return immediately.
+        return anchor;
+      } else if (!visibleFallback) {
+        // Visible but only a placeholder: last-resort fallback.
+        visibleFallback = anchor;
       }
     }
 
@@ -127,15 +126,16 @@ export class ScrollAnchor {
    */
   restore(anchor: ScrollAnchorPoint | null): void {
     if (!anchor) return;
-    // The anchor cell may have been removed from the DOM if the buffer shifted
-    // so far that it's no longer rendered. In that case we can just skip
-    // anchoring because there's no longer much point.
-    if (!anchor.cell.isConnected) return;
+    // The anchor cell may have fallen out of the buffer if the buffer
+    // shifted far enough. In that case we can just skip anchoring
+    // altogether as there's no longer much point.
+    const cell = this.host.getCellByIndex(anchor.cellIndex);
+    if (!cell) return;
 
     const scrollContainer = this.host.getScrollContainer();
     const isDoc = isDocumentScroller(scrollContainer);
     const viewportTop = isDoc ? 0 : scrollContainer.getBoundingClientRect().top;
-    const newRect = anchor.cell.getBoundingClientRect();
+    const newRect = cell.getBoundingClientRect();
     const delta = newRect.top - viewportTop - anchor.viewportOffset;
 
     // For very small deltas, we just skip them to avoid scroll jitter.
