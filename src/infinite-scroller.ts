@@ -734,6 +734,9 @@ export class InfiniteScroller
       clearTimeout(this.scrollIdleTimer);
       this.scrollIdleTimer = 0;
     }
+    // Invalidate any pending anchor restores, since any captured viewport
+    // positions are about to be made meaningless by the jump.
+    this.scrollAnchor.invalidate();
 
     this.snapBufferToCell(index);
 
@@ -767,6 +770,7 @@ export class InfiniteScroller
     // anchoring would call scrollBy. That would cancel the in-flight smooth
     // scroll and strand the user well short of the target.
     await this.nextSmoothScrollEnd();
+
     this.scrollToCellInProgress = false;
     return true;
   }
@@ -1088,6 +1092,7 @@ export class InfiniteScroller
     // We just adjusted scrollTop for scroll anchoring; ignore the
     // resulting event so the recompute doesn't reverse our compensation.
     if (this.scrollAnchor.shouldSuppressNextScrollEvent()) return;
+
     if (!this.scrollRafId) {
       this.scrollRafId = requestAnimationFrame(() => {
         this.scrollRafId = 0;
@@ -1651,6 +1656,15 @@ export class InfiniteScroller
     const cellOutline = css`var(--infiniteScrollerCellOutline, 0)`;
 
     return css`
+      :host {
+        /**
+         * We handle scroll anchoring ourselves for fine-tuning, so opt out
+         * of the browser's built-in anchoring (which can interfere with ours
+         * and cause undesirable content jitter).
+         */
+        overflow-anchor: none;
+      }
+
       #container {
         position: relative;
         display: flex;

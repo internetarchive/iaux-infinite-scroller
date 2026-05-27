@@ -8,6 +8,18 @@ import { isDocumentScroller } from './scroll-container-utils';
 export type ScrollAnchorPoint = {
   cellIndex: number;
   viewportOffset: number;
+  /**
+   * The scroll container's scrollTop at capture time, so that when we
+   * call restore() we can isolate user-initiated scrolling from the
+   * kinds of content shift we're trying to account for.
+   */
+  scrollYAtCapture: number;
+  /**
+   * Snapshot of the scroll anchor validity key when this anchor point was
+   * captured. If the key gets invalidated (e.g., by a scrollToCell call),
+   * we can skip restoring this anchor point.
+   */
+  validityKey: number;
 };
 
 /**
@@ -41,9 +53,9 @@ export interface ScrollAnchorHostInterface {
 }
 
 /**
- * Captures and restores a "scroll anchor": a reference to the topmost
- * visible cell, plus its viewport-relative position. The host can use this
- * to keep the user's view stable across operations that shift cell positions.
+ * Captures and restores a "scroll anchor": a reference to a cell in the
+ * buffer, plus its viewport-relative position. The host can use this to
+ * keep the user's view stable across operations that shift cell positions.
  *
  * Also owns the "suppress next scroll event" flag, which prevents the
  * recursive case where restoring a scroll anchor triggers scroll listeners
@@ -59,6 +71,12 @@ export class ScrollAnchor {
    */
   private suppressNextScrollEvent = false;
 
+  /**
+   * Validity key that can be invalidated to indicate that previously-captured
+   * anchors should no longer be restored.
+   */
+  private currentValidityKey = 0;
+
   private host: ScrollAnchorHostInterface;
 
   constructor(host: ScrollAnchorHostInterface) {
@@ -66,17 +84,24 @@ export class ScrollAnchor {
   }
 
   /**
+   * Invalidates all pending anchors captured up to this point, causing
+   * subsequent attempts to restore them to no-op. Use this when something
+   * is about to change the scroll position in a way that makes any pending
+   * anchor positions meaningless (e.g., a `scrollToCell` jump).
+   */
+  invalidate(): void {
+    this.currentValidityKey += 1;
+  }
+
+  /**
    * Find a cell to use as the scroll anchor and record its
    * viewport-relative top position. Pair every call with `restore`.
    *
    * The capture prioritizes cells in this order:
-   *  1. The topmost visible fully-rendered cell.
-   *  2. The first fully-rendered cell below the viewport, if no visible
-   *     one exists.
-   *  3. The topmost visible cell, which may be a placeholder.
-   *
-   * If there are no fully-rendered cells yet, we short-circuit to the
-   * topmost visible cell since there's nothing better to look for.
+   *  1. The topmost visible rendered cell that follows a visible placeholder.
+   *  2. The topmost visible rendered cell (regardless of placeholders).
+   *  3. The topmost rendered cell below the viewport, if no visible ones exist.
+   *  4. The topmost visible placeholder cell as a last-resort fallback.
    */
   capture(): ScrollAnchorPoint | null {
     if (!this.host.isActive()) return null;
@@ -87,9 +112,13 @@ export class ScrollAnchor {
     const viewportBottom = isDoc
       ? window.innerHeight
       : viewportTop + scrollContainer.clientHeight;
+    const validityKey = this.currentValidityKey;
+    const scrollYAtCapture = isDoc ? window.scrollY : scrollContainer.scrollTop;
 
+    let firstVisibleRendered: ScrollAnchorPoint | null = null;
     let visibleFallback: ScrollAnchorPoint | null = null;
     let belowRendered: ScrollAnchorPoint | null = null;
+    let seenVisiblePlaceholder = false;
     for (const cell of this.host.getCellContainers()) {
       const idxStr = cell.dataset.cellIndex;
       if (idxStr === undefined) continue;
@@ -97,9 +126,11 @@ export class ScrollAnchor {
       const anchor: ScrollAnchorPoint = {
         cellIndex: parseInt(idxStr, 10),
         viewportOffset: rect.top - viewportTop,
+        scrollYAtCapture,
+        validityKey,
       };
       if (rect.bottom < viewportTop) {
-        // Still fully above the viewport; skip.
+        // Still fully above the viewport, skip.
       } else if (rect.top >= viewportBottom) {
         // Below the viewport. The first rendered cell we find here
         // is a good fallback for when nothing visible is rendered.
@@ -108,15 +139,19 @@ export class ScrollAnchor {
           break;
         }
       } else if (this.host.isCellRendered(cell)) {
-        // Best case: visible & rendered, return immediately.
-        return anchor;
-      } else if (!visibleFallback) {
-        // Visible but only a placeholder: last-resort fallback.
-        visibleFallback = anchor;
+        // Visible & rendered. If we've already passed a visible
+        // placeholder, this is the preferred anchor.
+        if (seenVisiblePlaceholder) return anchor;
+        if (!firstVisibleRendered) firstVisibleRendered = anchor;
+      } else {
+        // Visible placeholder. Save it as a last resort in case
+        // we never find any rendered cells.
+        seenVisiblePlaceholder = true;
+        if (!visibleFallback) visibleFallback = anchor;
       }
     }
 
-    return belowRendered ?? visibleFallback;
+    return firstVisibleRendered ?? belowRendered ?? visibleFallback;
   }
 
   /**
@@ -126,6 +161,11 @@ export class ScrollAnchor {
    */
   restore(anchor: ScrollAnchorPoint | null): void {
     if (!anchor) return;
+    if (anchor.validityKey !== this.currentValidityKey) {
+      // The host invalidated this anchor, so restoring would apply a
+      // stale viewport correction; skip it.
+      return;
+    }
     // The anchor cell may have fallen out of the buffer if the buffer
     // shifted far enough. In that case we can just skip anchoring
     // altogether as there's no longer much point.
@@ -136,7 +176,16 @@ export class ScrollAnchor {
     const isDoc = isDocumentScroller(scrollContainer);
     const viewportTop = isDoc ? 0 : scrollContainer.getBoundingClientRect().top;
     const newRect = cell.getBoundingClientRect();
-    const delta = newRect.top - viewportTop - anchor.viewportOffset;
+    const scrollYNow = isDoc ? window.scrollY : scrollContainer.scrollTop;
+    // The anchor cell's viewport position may have changed because of
+    // (a) content shifting above it OR (b) the user scrolling.
+    // Here we try to isolate (a) and compensate for it.
+    const userScrollSinceCapture = scrollYNow - anchor.scrollYAtCapture;
+    const delta =
+      newRect.top -
+      viewportTop -
+      anchor.viewportOffset +
+      userScrollSinceCapture;
 
     // For very small deltas, we just skip them to avoid scroll jitter.
     if (Math.abs(delta) < 0.5) return;

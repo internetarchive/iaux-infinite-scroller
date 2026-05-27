@@ -1605,4 +1605,170 @@ describe('Scroll anchoring', () => {
         `(top went from ${topBefore.toFixed(1)} to ${topAfter.toFixed(1)})`,
     ).to.be.lessThan(20);
   });
+
+  it('refreshCell on placeholders sandwiched between rendered cells anchors on a cell after the placeholders', async () => {
+    // Guards against the case where the viewport contains a block of placeholder
+    // cells in between two blocks of fully-rendered ones, in which case we want
+    // to ensure we anchor the scroll on the lower ones.
+    const heights = new Map<number, number>();
+    const cellProvider: InfiniteScrollerCellProviderInterface = {
+      cellForIndex(i: number): TemplateResult | undefined {
+        const h = heights.get(i);
+        if (h === undefined) return undefined;
+        return html`<div style="height:${h}px">cell-${i}</div>`;
+      },
+    };
+    const el = await fixture<InfiniteScroller>(
+      html`<infinite-scroller
+        style="--infiniteScrollerCellMinHeight:0"
+        .itemCount=${500}
+        .cellProvider=${cellProvider}
+        .placeholderCellTemplate=${html`<div style="height:30px">loading</div>`}
+      ></infinite-scroller>`,
+    );
+    await el.bufferStabilized;
+
+    // Set up three regions of cells, all 100px when rendered:
+    //  - 190-199: above top of viewport top (partially clipped), already rendered
+    //  - 200-204: placeholders, at top of viewport
+    //  - 205-260: bottom of viewport below the placeholders, already rendered
+    for (let i = 190; i <= 199; i += 1) heights.set(i, 100);
+    for (let i = 205; i <= 260; i += 1) heights.set(i, 100);
+
+    // Ensure cell 199 is partially clipped
+    await el.scrollToCell(200, false);
+    await el.updateComplete;
+    await waitForFrame();
+    await el.updateComplete;
+    window.scrollBy(0, -50);
+    await waitForFrame();
+    await el.updateComplete;
+
+    // Pick the topmost visible cell from the lower region
+    // Its position shouldn't shift when the placeholders grow
+    const cells = cellsOf(el);
+    let belowAnchor: HTMLElement | null = null;
+    for (const cell of cells) {
+      const r = cell.getBoundingClientRect();
+      const idx = Number(cell.dataset.cellIndex);
+      if (
+        idx >= 205 &&
+        r.bottom > 0 &&
+        r.top < window.innerHeight &&
+        heights.has(idx)
+      ) {
+        belowAnchor = cell;
+        break;
+      }
+    }
+    expect(belowAnchor, 'no rendered cell visible below placeholder gap').to.not
+      .be.null;
+    const belowIdx = Number(belowAnchor!.dataset.cellIndex);
+    const topBefore = belowAnchor!.getBoundingClientRect().top;
+
+    // A cell from the upper region should also be visible
+    let aboveClipped: HTMLElement | null = null;
+    for (const cell of cells) {
+      const idx = Number(cell.dataset.cellIndex);
+      if (idx >= 190 && idx <= 199 && heights.has(idx)) {
+        const r = cell.getBoundingClientRect();
+        if (r.bottom > 0 && r.top < 0) {
+          aboveClipped = cell;
+          break;
+        }
+      }
+    }
+    expect(
+      aboveClipped,
+      'precondition: no rendered cell partially clipped above viewport',
+    ).to.not.be.null;
+
+    for (let i = 200; i <= 204; i += 1) heights.set(i, 100);
+    for (let i = 200; i <= 204; i += 1) el.refreshCell(i);
+    await el.updateComplete;
+    await waitForFrame();
+    await el.updateComplete;
+    await waitForFrame();
+    await el.updateComplete;
+
+    expect(belowAnchor!.isConnected, 'anchor cell missing from DOM').to.equal(
+      true,
+    );
+    const topAfter = belowAnchor!.getBoundingClientRect().top;
+    const delta = topAfter - topBefore;
+    expect(
+      Math.abs(delta),
+      `cell ${belowIdx} shifted ${delta.toFixed(1)}px`,
+    ).to.be.lessThan(20);
+  });
+
+  it('user scroll between capture and restore is preserved, not reverted by restore', async () => {
+    const heights = new Map<number, number>();
+    const cellProvider: InfiniteScrollerCellProviderInterface = {
+      cellForIndex(i: number): TemplateResult | undefined {
+        const h = heights.get(i);
+        if (h === undefined) return undefined;
+        return html`<div style="height:${h}px">cell-${i}</div>`;
+      },
+    };
+    const el = await fixture<InfiniteScroller>(
+      html`<infinite-scroller
+        style="--infiniteScrollerCellMinHeight:0"
+        .itemCount=${500}
+        .cellProvider=${cellProvider}
+        .placeholderCellTemplate=${html`<div style="height:30px">loading</div>`}
+      ></infinite-scroller>`,
+    );
+    await el.bufferStabilized;
+
+    // Same sandwich setup as the previous test
+    for (let i = 190; i <= 199; i += 1) heights.set(i, 100);
+    for (let i = 205; i <= 260; i += 1) heights.set(i, 100);
+    await el.scrollToCell(200, false);
+    await el.updateComplete;
+    await waitForFrame();
+    await el.updateComplete;
+    window.scrollBy(0, -50);
+    await waitForFrame();
+    await el.updateComplete;
+
+    // Track the position of a cell below the placeholders
+    const cells = cellsOf(el);
+    let belowCell: HTMLElement | null = null;
+    for (const cell of cells) {
+      const idx = Number(cell.dataset.cellIndex);
+      if (idx >= 205 && heights.has(idx)) {
+        const r = cell.getBoundingClientRect();
+        if (r.top > 0 && r.top < window.innerHeight) {
+          belowCell = cell;
+          break;
+        }
+      }
+    }
+    expect(belowCell, 'no below-gap cell visible in viewport').to.not.be.null;
+    const topBefore = belowCell!.getBoundingClientRect().top;
+
+    for (let i = 200; i <= 204; i += 1) heights.set(i, 100);
+    for (let i = 200; i <= 204; i += 1) el.refreshCell(i);
+
+    // Simulate the user scrolling in between anchor capture and restore
+    const simulatedUserScroll = 80;
+    window.scrollBy(0, simulatedUserScroll);
+
+    await el.updateComplete;
+    await waitForFrame();
+    await el.updateComplete;
+    await waitForFrame();
+    await el.updateComplete;
+
+    // After the cycle, the below-gap cell should sit at roughly
+    // (topBefore - simulatedUserScroll). I.e., the restore compensated
+    // for the content shift only, but the intervening scroll is preserved.
+    const topAfter = belowCell!.getBoundingClientRect().top;
+    const cellShiftInViewport = topAfter - topBefore;
+    expect(
+      cellShiftInViewport,
+      `cell shifted ${cellShiftInViewport.toFixed(1)}px`,
+    ).to.be.lessThan(-simulatedUserScroll * 0.6);
+  });
 });
