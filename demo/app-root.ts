@@ -55,7 +55,6 @@ export class AppRoot
     if (usingPlaceholders && !this.loadedCells.has(index)) {
       if (!this.pendingCells.has(index)) {
         this.pendingCells.add(index);
-        console.log('added cell to pending:', index);
         setTimeout(() => {
           this.pendingCells.delete(index);
           if (!this.loadedCells.has(index)) {
