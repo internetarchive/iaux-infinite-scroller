@@ -50,20 +50,22 @@ export class AppRoot
     }
   }
 
+  private startPlaceholderTimer(index: number): void {
+    this.pendingCells.add(index);
+    setTimeout(() => {
+      this.pendingCells.delete(index);
+      if (!this.loadedCells.has(index)) {
+        this.loadedCells.add(index);
+        this.infiniteScroller.refreshCell(index);
+      }
+    }, 1000);
+  }
+
   cellForIndex(index: number): TemplateResult | undefined {
     const usingPlaceholders = this.placeholdersCheckbox.checked;
     if (usingPlaceholders && !this.loadedCells.has(index)) {
-      if (!this.pendingCells.has(index)) {
-        this.pendingCells.add(index);
-        setTimeout(() => {
-          this.pendingCells.delete(index);
-          if (!this.loadedCells.has(index)) {
-            this.loadedCells.add(index);
-            this.infiniteScroller.refreshCell(index);
-          }
-        }, 1000);
-      }
-      return undefined;
+      if (this.pendingCells.has(index)) return;
+      this.startPlaceholderTimer(index);
     }
 
     if (this.tileDesign === '1') {
