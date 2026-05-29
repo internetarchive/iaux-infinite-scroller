@@ -1,5 +1,5 @@
 import { html, css, LitElement, TemplateResult } from 'lit';
-import { customElement, query } from 'lit/decorators.js';
+import { customElement, query, state } from 'lit/decorators.js';
 import './tile-1';
 import './tile-2';
 import './placeholder-tile';
@@ -21,6 +21,12 @@ export class AppRoot
   @query('#animatedCheckbox') animatedCheckbox!: HTMLInputElement;
 
   @query('#placeholdersCheckbox') placeholdersCheckbox!: HTMLInputElement;
+
+  /**
+   * Whether to nest the infinite scroller in a parent container with overflow: auto.
+   * Default is false (using the main document scroll container).
+   */
+  @state() private useNestedScroller = false;
 
   private tileDesign: '1' | '2' = '1';
 
@@ -48,6 +54,10 @@ export class AppRoot
     if (index >= 0) {
       this.infiniteScroller.scrollToCell(index, animated);
     }
+  }
+
+  private toggleUseNestedScroller(e: Event) {
+    this.useNestedScroller = (e.target as HTMLInputElement).checked;
   }
 
   private startPlaceholderTimer(index: number): void {
@@ -79,7 +89,21 @@ export class AppRoot
     return html`<placeholder-tile></placeholder-tile>`;
   }
 
+  private scrollerTemplate(): TemplateResult {
+    return html`
+      <infinite-scroller
+        .itemCount=${5000}
+        .estimatedCellHeight=${80}
+        .cellProvider=${this}
+        .placeholderCellTemplate=${this.placeholderTemplate}
+        @scrollThresholdReached=${this.scrollThresholdReached}
+      >
+      </infinite-scroller>
+    `;
+  }
+
   render() {
+    const scroller = this.scrollerTemplate();
     return html`
       <div id="dev-tools">
         <div>
@@ -98,27 +122,36 @@ export class AppRoot
           >
             Tile 2
           </button>
-          Placeholders:
-          <input type="checkbox" id="placeholdersCheckbox" checked />
+          <label>
+            Placeholders:
+            <input type="checkbox" id="placeholdersCheckbox" checked />
+          </label>
+          <label>
+            Nested scroller:
+            <input
+              type="checkbox"
+              id="nestedScrollerCheckbox"
+              ?checked=${this.useNestedScroller}
+              @change=${this.toggleUseNestedScroller}
+            />
+          </label>
         </div>
+        <hr />
         <div>
           <form @submit=${this.scrollToCell}>
             Scroll to cell index:
-            <input type="number" id="scrollToCellIndex" /> Animated:
-            <input type="checkbox" id="animatedCheckbox" />
+            <input type="number" id="scrollToCellIndex" />
+            <label
+              >Animated: <input type="checkbox" id="animatedCheckbox"
+            /></label>
             <input type="submit" value="Scroll" />
           </form>
         </div>
       </div>
 
-      <infinite-scroller
-        .itemCount=${5000}
-        .estimatedCellHeight=${80}
-        .cellProvider=${this}
-        .placeholderCellTemplate=${this.placeholderTemplate}
-        @scrollThresholdReached=${this.scrollThresholdReached}
-      >
-      </infinite-scroller>
+      ${this.useNestedScroller
+        ? html`<div class="nested-scroll-container">${scroller}</div>`
+        : scroller}
     `;
   }
 
@@ -129,8 +162,22 @@ export class AppRoot
       font-size: 1.6rem;
     }
 
+    hr {
+      border-color: #333;
+    }
+
     #dev-tools {
       margin-bottom: 10px;
+    }
+
+    #dev-tools > div {
+      margin: 5px 0;
+    }
+
+    button:last-of-type,
+    input[type='checkbox'],
+    input[type='number'] {
+      margin-right: 10px;
     }
 
     .cell {
@@ -139,6 +186,13 @@ export class AppRoot
 
     #scrollToCellIndex {
       width: 50px;
+    }
+
+    .nested-scroll-container {
+      height: 600px;
+      overflow-y: auto;
+      border: 2px solid #888;
+      padding: 0 10px;
     }
 
     infinite-scroller {

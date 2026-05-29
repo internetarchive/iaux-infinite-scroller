@@ -13,7 +13,9 @@ export class PlaceholderTile extends LitElement {
   static get styles() {
     return css`
       :host {
-        display: block;
+        display: flex;
+        justify-content: center;
+        align-items: center;
         outline: 1px solid #aaa;
         height: 100%;
       }
