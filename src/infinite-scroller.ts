@@ -445,6 +445,20 @@ export class InfiniteScroller
         });
       }
     }
+
+    // A change in estimated cell heights should invalidate the row height cache & re-layout
+    if (this.isVirtualized && changed.has('estimatedCellHeight')) {
+      const prev = changed.get('estimatedCellHeight') as number | undefined;
+      const curr = this.estimatedCellHeight;
+      if (prev != null && curr != null && prev !== curr) {
+        requestAnimationFrame(() => {
+          this.resetCellLayoutCache();
+          this.defaultRowHeight = this.computeDefaultRowHeight();
+          this.updateScrollLayout();
+          this.syncBufferToScrollPosition();
+        });
+      }
+    }
   }
 
   /** @inheritdoc */
@@ -637,8 +651,7 @@ export class InfiniteScroller
       const newCols = this.getColumnsPerRow();
       if (newCols !== this.cachedColumnsPerRow) {
         this.cachedColumnsPerRow = newCols;
-        this.placeholderRowHeight = undefined;
-        this.rowHeightCache.recalculateAllRowHeights();
+        this.resetCellLayoutCache();
         this.updateScrollLayout();
         this.syncBufferToScrollPosition();
       }
@@ -648,6 +661,17 @@ export class InfiniteScroller
         this.defaultRowHeight = this.computeDefaultRowHeight();
       }
     });
+  }
+
+  /**
+   * Clear the per-cell and per-row height caches, and clear any inline
+   * styles applied to the cells themselves for those values.
+   */
+  private resetCellLayoutCache(): void {
+    this.rowHeightCache.clear();
+    for (const cell of this.cellContainers) {
+      cell.style.minHeight = '';
+    }
   }
 
   //
@@ -1288,7 +1312,9 @@ export class InfiniteScroller
     this.updateScrollLayout();
     // Lit needs to re-render with the new buffer + transform before
     // bounding-rect calls will reflect the new layout.
-    this.updateComplete.then(() => this.scrollAnchor.restore(anchor));
+    this.updateComplete.then(() => {
+      this.scrollAnchor.restore(anchor);
+    });
   }
 
   /**
@@ -1501,12 +1527,19 @@ export class InfiniteScroller
         >
           ${map(bufferIndices, index => {
             const cellTemplate = this.cellProvider?.cellForIndex(index);
+            // Pin the <article> min-height to its cached row height so
+            // that the cells don't collapse when their content gets shuffled.
+            // Without this we risk restoring the scroll anchor to an
+            // incorrect position with the collapsed cells.
+            const row = Math.floor(index / this.cachedColumnsPerRow);
+            const rowHeight = this.rowHeightCache.rowHeightFor(row);
             return html`<article
               class="cell-container"
               aria-posinset=${index + 1}
               aria-setsize=${this.itemCount}
               data-cell-index=${index}
               ?data-rendered=${cellTemplate != null}
+              style="min-height: max(${rowHeight}px, var(--infiniteScrollerCellMinHeight, 22.5rem))"
               @click=${this.handleCellClick}
               @keyup=${this.handleCellKeyup}
             >
@@ -1536,12 +1569,19 @@ export class InfiniteScroller
         <div id="sentinel" aria-hidden="true"></div>
         ${map(indexArray, index => {
           const cellTemplate = this.cellProvider?.cellForIndex(index);
+          // Pin the <article> min-height to its cached row height so
+          // that the cells don't collapse when their content gets shuffled.
+          // Without this we risk restoring the scroll anchor to an
+          // incorrect position with the collapsed cells.
+          const row = Math.floor(index / this.cachedColumnsPerRow);
+          const rowHeight = this.rowHeightCache.rowHeightFor(row);
           return html`<article
             class="cell-container"
             aria-posinset=${index + 1}
             aria-setsize=${this.itemCount}
             data-cell-index=${index}
             ?data-rendered=${cellTemplate != null}
+            style="min-height: max(${rowHeight}px, var(--infiniteScrollerCellMinHeight, 22.5rem))"
             @click=${this.handleCellClick}
             @keyup=${this.handleCellKeyup}
           >

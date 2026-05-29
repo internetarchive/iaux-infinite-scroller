@@ -1771,4 +1771,67 @@ describe('Scroll anchoring', () => {
       `cell shifted ${cellShiftInViewport.toFixed(1)}px`,
     ).to.be.lessThan(-simulatedUserScroll * 0.6);
   });
+
+  it('articles carry inline min-height matching their cached row height', async () => {
+    const cellProvider: InfiniteScrollerCellProviderInterface = {
+      cellForIndex: (i: number): TemplateResult | undefined =>
+        html`<div style="height:${100 + (i % 7) * 15}px">cell-${i}</div>`,
+    };
+    const el = await fixture<InfiniteScroller>(
+      html`<infinite-scroller
+        style="--infiniteScrollerCellMinHeight:0"
+        .itemCount=${300}
+        .cellProvider=${cellProvider}
+      ></infinite-scroller>`,
+    );
+    await el.bufferStabilized;
+
+    // Force a shift in the buffer
+    await el.scrollToCell(100, false);
+    await el.updateComplete;
+    await waitForFrame();
+    await el.updateComplete;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cols = (el as any).cachedColumnsPerRow as number;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rowHeightCache = (el as any).rowHeightCache as {
+      rowHeightFor(row: number): number;
+    };
+
+    const cells = cellsOf(el);
+    expect(
+      cells.length,
+      'expected some cells to be rendered',
+    ).to.be.greaterThan(0);
+    const missingInlineMinHeight: number[] = [];
+    const wrongCachedValue: {
+      index: number;
+      style: string;
+      expected: number;
+    }[] = [];
+    for (const cell of cells) {
+      const idxStr = cell.dataset.cellIndex;
+      if (idxStr === undefined) continue;
+      const index = parseInt(idxStr, 10);
+      const inline = cell.style.minHeight;
+      if (!inline) {
+        missingInlineMinHeight.push(index);
+        continue;
+      }
+      const row = Math.floor(index / cols);
+      const expected = rowHeightCache.rowHeightFor(row);
+      if (!inline.includes(`${expected}`)) {
+        wrongCachedValue.push({ index, style: inline, expected });
+      }
+    }
+    expect(
+      missingInlineMinHeight,
+      `articles missing inline min-height: ${missingInlineMinHeight.join(',')}`,
+    ).to.deep.equal([]);
+    expect(
+      wrongCachedValue,
+      `articles with min-height not reflecting cached row height: ${JSON.stringify(wrongCachedValue.slice(0, 3))}`,
+    ).to.deep.equal([]);
+  });
 });

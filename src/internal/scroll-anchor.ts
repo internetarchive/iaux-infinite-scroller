@@ -141,13 +141,19 @@ export class ScrollAnchor {
       } else if (this.host.isCellRendered(cell)) {
         // Visible & rendered. If we've already passed a visible
         // placeholder, this is the preferred anchor.
-        if (seenVisiblePlaceholder) return anchor;
-        if (!firstVisibleRendered) firstVisibleRendered = anchor;
+        if (seenVisiblePlaceholder) {
+          return anchor;
+        }
+        if (!firstVisibleRendered) {
+          firstVisibleRendered = anchor;
+        }
       } else {
         // Visible placeholder. Save it as a last resort in case
         // we never find any rendered cells.
         seenVisiblePlaceholder = true;
-        if (!visibleFallback) visibleFallback = anchor;
+        if (!visibleFallback) {
+          visibleFallback = anchor;
+        }
       }
     }
 

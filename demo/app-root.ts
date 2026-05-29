@@ -64,8 +64,9 @@ export class AppRoot
   cellForIndex(index: number): TemplateResult | undefined {
     const usingPlaceholders = this.placeholdersCheckbox.checked;
     if (usingPlaceholders && !this.loadedCells.has(index)) {
-      if (this.pendingCells.has(index)) return;
+      if (this.pendingCells.has(index)) return undefined;
       this.startPlaceholderTimer(index);
+      return undefined;
     }
 
     if (this.tileDesign === '1') {
