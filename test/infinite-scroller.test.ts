@@ -310,10 +310,6 @@ describe('Infinite Scroller Virtualization', () => {
 
     const cells = el.shadowRoot?.querySelectorAll('.cell-container');
     expect(cells?.length).to.equal(50);
-
-    // No scroll-spacer should be present when scroll optimization is disabled
-    const scrollSpacer = el.shadowRoot?.querySelector('#scroll-spacer');
-    expect(scrollSpacer).to.not.exist;
   });
 
   it('sets correct aria set attributes on buffered cells', async () => {

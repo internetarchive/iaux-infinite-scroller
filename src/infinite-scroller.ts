@@ -214,13 +214,6 @@ export class InfiniteScroller
   @queryAll('.cell-container') private cellContainers!: HTMLElement[];
 
   /**
-   * Whether CSS Grid is supported in the current browser (our virtualization
-   * depends on it).
-   */
-  private supportsGrid =
-    typeof CSS !== 'undefined' && CSS.supports('display', 'grid');
-
-  /**
    * Cache for all the cell/row tracking to ensure row heights stay
    * updated when cell heights and placeholder states change.
    *
@@ -310,7 +303,7 @@ export class InfiniteScroller
     getCellContainers: () => this.cellContainers,
     getCellByIndex: (idx: number) => this.cellContainerForIndex(idx),
     isCellRendered: (cell: Element) => cell.hasAttribute('data-rendered'),
-    isActive: () => this.isVirtualized && !this.scrollToCellInProgress,
+    isActive: () => !this.scrollToCellInProgress,
   });
 
   private sentinelIsIntersecting = false;
@@ -392,18 +385,17 @@ export class InfiniteScroller
 
   firstUpdated() {
     this.observeSentinel();
-    if (this.isVirtualized) {
-      this.setupVirtualization();
-    }
+    this.setupVirtualization();
   }
 
   willUpdate(changed: PropertyValues) {
     if (changed.has('itemCount')) {
       this.pruneStaleIndices();
-      if (this.isVirtualized) {
-        this.updateScrollLayout();
-        this.syncBufferToScrollPosition();
+      if (this.scrollOptimizationsDisabled) {
+        this.bufferEnd = Math.max(0, this.itemCount - 1);
       }
+      this.updateScrollLayout();
+      this.syncBufferToScrollPosition();
     }
   }
 
@@ -412,7 +404,7 @@ export class InfiniteScroller
       changed.has('itemCount') ||
       changed.has('scrollOptimizationsDisabled')
     ) {
-      if (changed.has('itemCount') && this.isVirtualized) {
+      if (changed.has('itemCount')) {
         this.scheduleSentinelRecheck();
       }
       this.setupObservations();
@@ -421,23 +413,18 @@ export class InfiniteScroller
     // Whenever the set of buffered cells may have changed, we need to
     // refresh the map from indices to DOM elements.
     if (
-      this.isVirtualized &&
-      (changed.has('bufferStart') ||
-        changed.has('bufferEnd') ||
-        changed.has('itemCount') ||
-        changed.has('scrollOptimizationsDisabled'))
+      changed.has('bufferStart') ||
+      changed.has('bufferEnd') ||
+      changed.has('itemCount') ||
+      changed.has('scrollOptimizationsDisabled')
     ) {
       this.refreshCellContainerCache();
     }
 
-    // If virtualization is needed, ensure buffered cells are rendered and re-observed
-    // after DOM updates
-    if (
-      this.isVirtualized &&
-      (changed.has('bufferStart') || changed.has('bufferEnd'))
-    ) {
+    // Buffer position changed; ensure cells are observed and visible set is updated
+    if (changed.has('bufferStart') || changed.has('bufferEnd')) {
       this.emitVisibleCellsChanged();
-      this.setupVirtualizedObservations();
+      this.setupObservations();
       if (!this.scrollRafId && !this.scrollToCellInProgress) {
         this.scrollRafId = requestAnimationFrame(() => {
           this.scrollRafId = 0;
@@ -447,7 +434,7 @@ export class InfiniteScroller
     }
 
     // A change in estimated cell heights should invalidate the row height cache & re-layout
-    if (this.isVirtualized && changed.has('estimatedCellHeight')) {
+    if (changed.has('estimatedCellHeight')) {
       const prev = changed.get('estimatedCellHeight') as number | undefined;
       const curr = this.estimatedCellHeight;
       if (prev != null && curr != null && prev !== curr) {
@@ -467,46 +454,14 @@ export class InfiniteScroller
   }
 
   /**
-   * Whether the scroller should use its virtualized mode.
+   * Range of cell indices currently in the buffer.
    */
-  private get isVirtualized(): boolean {
-    return !this.scrollOptimizationsDisabled && this.supportsGrid;
-  }
-
-  /**
-   * Range of cell indices lying within the current virtualized buffer.
-   */
-  private get virtualBufferIndices(): number[] {
+  private get bufferRange(): number[] {
     if (this.itemCount === 0) return [];
     const start = Math.max(0, this.bufferStart);
     const end = Math.min(this.bufferEnd, this.itemCount - 1);
     if (end < start) return [];
     return generateRange(start, end, 1);
-  }
-
-  /**
-   * An array of cell indices that need to be rendered based
-   * on the currently visible cells and the size of the buffer.
-   */
-  private get bufferRange(): number[] {
-    if (this.isVirtualized) {
-      return this.virtualBufferIndices;
-    }
-
-    const cellBufferSize = Math.max(10, this.visibleCellIndices.size);
-
-    if (this.visibleCellIndices.size === 0) {
-      return generateRange(0, cellBufferSize, 1);
-    }
-
-    const minVisibleIndex = Math.min(...this.visibleCellIndices);
-    const maxVisibleIndex = Math.max(...this.visibleCellIndices);
-    const minBufferIndex = Math.max(minVisibleIndex - cellBufferSize, 0);
-    const maxBufferIndex = Math.min(
-      maxVisibleIndex + cellBufferSize,
-      this.itemCount - 1,
-    );
-    return generateRange(minBufferIndex, maxBufferIndex, 1);
   }
 
   //
@@ -551,17 +506,11 @@ export class InfiniteScroller
   }
 
   /**
-   * Add observations for all of the things that need observing
+   * Re-attach the cell IntersectionObserver to all current cell containers
+   * and (re)install the scroll listener. Call from places where the
+   * buffered cell set may have changed.
    */
   private setupObservations() {
-    if (this.isVirtualized) {
-      this.setupVirtualizedObservations();
-    } else {
-      this.setupIntersectionObserver();
-    }
-  }
-
-  private setupVirtualizedObservations() {
     this.cellIntersectionObserver.disconnect();
     this.visibleCellIndices.clear();
 
@@ -571,24 +520,6 @@ export class InfiniteScroller
 
     if (!this.scrollListenersActive) {
       this.setupScrollListener();
-    }
-  }
-
-  /**
-   * The intersection observer is used to determine when cells are visible
-   * so we can efficiently render only the minimum number of cells
-   */
-  private setupIntersectionObserver() {
-    this.cellIntersectionObserver.disconnect();
-
-    if (this.scrollOptimizationsDisabled) {
-      const indexArray = generateRange(0, Math.max(0, this.itemCount - 1), 1);
-      indexArray.forEach(index => this.visibleCellIndices.add(index));
-      this.emitVisibleCellsChanged();
-    } else {
-      this.cellContainers.forEach(cell =>
-        this.cellIntersectionObserver.observe(cell),
-      );
     }
   }
 
@@ -617,9 +548,7 @@ export class InfiniteScroller
   /**
    * IntersectionObserver callback for the buffered cells: maintains the
    * `visibleCellIndices` set as cells enter/leave the viewport, then
-   * dispatches the appropriate downstream work. In virtualized mode, that
-   * triggers a visibility change event; otherwise, it immediately reprocesses
-   * the buffer.
+   * dispatches a visibility change event.
    */
   private handleCellIntersection(entries: IntersectionObserverEntry[]): void {
     entries.forEach(entry => {
@@ -634,9 +563,7 @@ export class InfiniteScroller
       }
     });
 
-    if (!this.scrollOptimizationsDisabled) {
-      this.emitVisibleCellsChanged();
-    }
+    this.emitVisibleCellsChanged();
   }
 
   /**
@@ -698,27 +625,22 @@ export class InfiniteScroller
     this.reobserveSentinel();
 
     // Immediately stabilize the buffer
-    if (this.isVirtualized) {
-      this.stabilizeBuffer();
-    }
+    this.stabilizeBuffer();
   }
 
   /** @inheritdoc */
   refreshCell(index: number): void {
-    // In virtualized mode, skip work for cells outside the current buffer.
-    // Stale async callbacks (e.g. setTimeout in cellForIndex) can fire for
-    // cells the user scrolled past long ago; the only state worth touching
-    // for those is the row-height cache entry, if any.
-    if (this.isVirtualized) {
-      if (index < this.bufferStart || index > this.bufferEnd) {
-        if (this.rowHeightCache.deleteCellHeight(index)) {
-          this.rowHeightCache.recalculateAllRowHeights();
-          this.scheduleScrollLayoutUpdate();
-        }
-        return;
+    if (index < this.bufferStart || index > this.bufferEnd) {
+      // If we have to refresh a cell that's outside of the buffer, we don't
+      // know its actual new content height so we should just invalidate its
+      // cached height until we do.
+      if (this.rowHeightCache.deleteCellHeight(index)) {
+        this.rowHeightCache.recalculateAllRowHeights();
+        this.scheduleScrollLayoutUpdate();
       }
-      this.scheduleScrollLayoutUpdate();
+      return;
     }
+    this.scheduleScrollLayoutUpdate();
     // Lit re-evaluates `cellForIndex` for every buffered cell on the next
     // render. Diffing handles the new content efficiently; only this cell's
     // template will actually change.
@@ -727,7 +649,7 @@ export class InfiniteScroller
 
   /** @inheritdoc */
   refreshAllVisibleCells(): void {
-    if (this.isVirtualized) this.scheduleScrollLayoutUpdate();
+    this.scheduleScrollLayoutUpdate();
     this.requestUpdate();
   }
 
@@ -736,12 +658,6 @@ export class InfiniteScroller
     if (index < 0 || index >= this.itemCount) return false;
 
     const behavior = animated ? 'smooth' : 'auto';
-    if (!this.isVirtualized) {
-      const cellContainer = this.cellContainers[index];
-      if (!cellContainer) return false;
-      cellContainer.scrollIntoView({ behavior });
-      return true;
-    }
 
     // We don't want to handle scroll events normally while we're scrolling
     // to a cell, so flag it for now. Stays true until either we fail to find
@@ -1027,6 +943,9 @@ export class InfiniteScroller
    * `stabilizeBuffer()`.
    */
   private computeInitialBufferEnd(): number {
+    if (this.scrollOptimizationsDisabled) {
+      return Math.max(0, this.itemCount - 1);
+    }
     const estimatedVisibleRows = Math.ceil(
       window.innerHeight / this.defaultRowHeight,
     );
@@ -1112,6 +1031,7 @@ export class InfiniteScroller
    * Event handler for passive scroll events, throttled to minimize unnecessary updates.
    */
   private handleScroll = (): void => {
+    if (this.scrollOptimizationsDisabled) return;
     if (this.scrollToCellInProgress) return;
     // We just adjusted scrollTop for scroll anchoring; ignore the
     // resulting event so the recompute doesn't reverse our compensation.
@@ -1264,6 +1184,7 @@ export class InfiniteScroller
   }
 
   private syncBufferToScrollPosition(): void {
+    if (this.scrollOptimizationsDisabled) return;
     // Re-measure heights of buffered cells, since child components may have
     // rendered since the cells were created
     this.measureBufferedCells();
@@ -1501,31 +1422,19 @@ export class InfiniteScroller
   //
 
   render(): TemplateResult {
-    if (this.isVirtualized) {
-      return this.renderVirtualized();
-    }
-    // For SSR, we may need to render a set of cells immediately without virtualization
-    return this.renderAllCells();
-  }
-
-  /**
-   * Renders a virtualized buffer of cells for the current viewport, surrounded by a scroll
-   * spacer that maintains the full scrollable height of the unbuffered regions.
-   */
-  private renderVirtualized(): TemplateResult {
-    const bufferIndices = this.virtualBufferIndices;
+    const { bufferRange, bufferOffsetY, totalContentHeight, itemCount } = this;
     const containerAriaLabel = this.ariaLandmarkLabel ?? nothing;
     return html`
-      <div id="scroll-spacer" style="height:${this.totalContentHeight}px">
+      <div id="scroll-spacer" style="height:${totalContentHeight}px">
         <div id="sentinel" aria-hidden="true"></div>
         <section
           id="container"
           role="feed"
           aria-label=${containerAriaLabel}
-          style="transform:translateY(${this.bufferOffsetY}px)"
+          style="transform:translateY(${bufferOffsetY}px)"
           @transitionend=${this.handleContainerTransition}
         >
-          ${map(bufferIndices, index => {
+          ${map(bufferRange, index => {
             const cellTemplate = this.cellProvider?.cellForIndex(index);
             // Pin the <article> min-height to its cached row height so
             // that the cells don't collapse when their content gets shuffled.
@@ -1536,7 +1445,7 @@ export class InfiniteScroller
             return html`<article
               class="cell-container"
               aria-posinset=${index + 1}
-              aria-setsize=${this.itemCount}
+              aria-setsize=${itemCount}
               data-cell-index=${index}
               ?data-rendered=${cellTemplate != null}
               style="min-height: max(${rowHeight}px, var(--infiniteScrollerCellMinHeight, 22.5rem))"
@@ -1549,50 +1458,11 @@ export class InfiniteScroller
               )}
             </article>`;
           })}
-          ${this.bufferEnd >= this.itemCount - 1
+          ${this.bufferEnd >= itemCount - 1
             ? html`<slot name="result-last-tile"></slot>`
             : nothing}
         </section>
       </div>
-    `;
-  }
-
-  /**
-   * Renders the full set of cells and their contents, without any virtualization
-   */
-  private renderAllCells(): TemplateResult {
-    const finalIndex = this.itemCount - 1;
-    const indexArray = generateRange(0, finalIndex, 1);
-    const containerAriaLabel = this.ariaLandmarkLabel ?? nothing;
-    return html`
-      <section id="container" role="feed" aria-label=${containerAriaLabel}>
-        <div id="sentinel" aria-hidden="true"></div>
-        ${map(indexArray, index => {
-          const cellTemplate = this.cellProvider?.cellForIndex(index);
-          // Pin the <article> min-height to its cached row height so
-          // that the cells don't collapse when their content gets shuffled.
-          // Without this we risk restoring the scroll anchor to an
-          // incorrect position with the collapsed cells.
-          const row = Math.floor(index / this.cachedColumnsPerRow);
-          const rowHeight = this.rowHeightCache.rowHeightFor(row);
-          return html`<article
-            class="cell-container"
-            aria-posinset=${index + 1}
-            aria-setsize=${this.itemCount}
-            data-cell-index=${index}
-            ?data-rendered=${cellTemplate != null}
-            style="min-height: max(${rowHeight}px, var(--infiniteScrollerCellMinHeight, 22.5rem))"
-            @click=${this.handleCellClick}
-            @keyup=${this.handleCellKeyup}
-          >
-            ${keyed(
-              index,
-              cellTemplate ?? this.placeholderCellTemplate ?? nothing,
-            )}
-          </article>`;
-        })}
-        <slot name="result-last-tile"></slot>
-      </section>
     `;
   }
 
@@ -1654,9 +1524,6 @@ export class InfiniteScroller
   };
 
   private cellContainerForIndex(index: number): HTMLElement | null {
-    if (!this.isVirtualized) {
-      return this.cellContainers[index] ?? null;
-    }
     // Cache populated by refreshCellContainerCache() on every render where
     // the buffered cell set changes; lookup is O(1) here instead of a
     // shadow-DOM querySelector per call.
