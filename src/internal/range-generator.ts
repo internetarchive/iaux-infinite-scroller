@@ -12,10 +12,10 @@
 export function generateRange(
   start: number,
   stop: number,
-  step: number
+  step: number,
 ): number[] {
   return Array.from(
     { length: (stop - start) / step + 1 },
-    (_, i) => start + i * step
+    (_, i) => start + i * step,
   );
 }
