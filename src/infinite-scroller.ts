@@ -90,13 +90,6 @@ export interface InfiniteScrollerInterface extends LitElement {
   bufferMarginViewportScale: number;
 
   /**
-   * Promise that resolves when the scroller's buffer has fully stabilized
-   * after initialization or any change that triggers async measurement.
-   * Consumers can await this to know when the scroller is ready for interaction.
-   */
-  readonly bufferStabilized: Promise<void>;
-
-  /**
    * Estimated height of each cell in pixels, used to size the scroll
    * spacer and position the buffer transform before real cell heights
    * have been measured. Consumers can set this to match their expected
@@ -104,6 +97,13 @@ export interface InfiniteScrollerInterface extends LitElement {
    * Defaults to the CSS `--infiniteScrollerCellMinHeight` value.
    */
   estimatedCellHeight?: number;
+
+  /**
+   * Promise that resolves when the scroller's buffer has fully stabilized
+   * after initialization or any change that triggers async measurement.
+   * Consumers can await this to know when the scroller is ready for interaction.
+   */
+  readonly bufferStabilized: Promise<void>;
 
   /**
    * Reload the scroller
@@ -615,7 +615,6 @@ export class InfiniteScroller
     this.totalContentHeight = 0;
     this.bufferOffsetY = 0;
     this.bufferStart = 0;
-
     this.bufferEnd = this.computeInitialBufferEnd();
 
     this.updateScrollLayout();
