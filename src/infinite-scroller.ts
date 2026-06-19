@@ -673,9 +673,15 @@ export class InfiniteScroller
       clearTimeout(this.scrollIdleTimer);
       this.scrollIdleTimer = 0;
     }
+
     // Invalidate any pending anchor restores, since any captured viewport
     // positions are about to be made meaningless by the jump.
     this.scrollAnchor.invalidate();
+
+    // A scrollToCell call should enable scroll anchoring since it is a
+    // deliberate signal that this scroller's position is now important
+    // on the page.
+    this.scrollAnchor.setEnabled(true);
 
     this.snapBufferToCell(index);
 
@@ -1035,6 +1041,10 @@ export class InfiniteScroller
     // We just adjusted scrollTop for scroll anchoring; ignore the
     // resulting event so the recompute doesn't reverse our compensation.
     if (this.scrollAnchor.shouldSuppressNextScrollEvent()) return;
+
+    // Any scroll event we reach here is assumed to have been user-initiated,
+    // so enable scroll anchoring from here on.
+    this.scrollAnchor.setEnabled(true);
 
     if (!this.scrollRafId) {
       this.scrollRafId = requestAnimationFrame(() => {
@@ -1566,7 +1576,16 @@ export class InfiniteScroller
         /**
          * We handle scroll anchoring ourselves for fine-tuning, so opt out
          * of the browser's built-in anchoring (which can interfere with ours
-         * and cause undesirable content jitter).
+         * and cause undesirable content jitter). 
+         */
+        overflow-anchor: none;
+      }
+
+      #scroll-spacer,
+      #container,
+      .cell-container {
+        /**
+         * overflow-anchor does not cascade, so descendents need to opt out too
          */
         overflow-anchor: none;
       }

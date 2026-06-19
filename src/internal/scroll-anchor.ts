@@ -77,10 +77,25 @@ export class ScrollAnchor {
    */
   private currentValidityKey = 0;
 
+  /**
+   * When false, `capture()` short-circuits to null so that anchoring is a
+   * no-op. This ensures that we don't begin scroll anchoring until the host
+   * is ready (e.g., after other page content that might change the scroll position
+   * has loaded, or after the user has begun scrolling).
+   */
+  private enabled = false;
+
   private host: ScrollAnchorHostInterface;
 
   constructor(host: ScrollAnchorHostInterface) {
     this.host = host;
+  }
+
+  /**
+   * Turns anchoring on or off as needed.
+   */
+  setEnabled(value: boolean): void {
+    this.enabled = value;
   }
 
   /**
@@ -104,6 +119,7 @@ export class ScrollAnchor {
    *  4. The topmost visible placeholder cell as a last-resort fallback.
    */
   capture(): ScrollAnchorPoint | null {
+    if (!this.enabled) return null;
     if (!this.host.isActive()) return null;
 
     const scrollContainer = this.host.getScrollContainer();
