@@ -1340,17 +1340,6 @@ describe('Scroll anchoring', () => {
     window.scrollTo(0, 0);
   });
 
-  beforeEach(async () => {
-    // Drain any pending scroll event queued by the previous test's
-    // afterEach `scrollTo(0, 0)`. Browsers dispatch scroll events on
-    // a later tick, so without this the event can land after the next
-    // test's scroller mounts and enable anchoring prematurely.
-    // This is purely an artifact of the test-harness.
-    window.scrollTo(0, 0);
-    await new Promise(r => setTimeout(r, 0));
-    await new Promise(r => requestAnimationFrame(() => r(undefined)));
-  });
-
   it('ScrollAnchor.capture + restore compensate for layout shifts', async () => {
     // Unit test of the ScrollAnchor primitives directly: an anchor
     // captured before a simulated layout shift should drive a scrollTop
@@ -1384,9 +1373,10 @@ describe('Scroll anchoring', () => {
     expect(anchor.cellIndex, 'anchor.cellIndex should be a number').to.be.a(
       'number',
     );
-    expect(anchor.viewportOffset, 'viewportOffset should be a number').to.be.a(
-      'number',
-    );
+    expect(
+      anchor.cellOffsetWithinScroller,
+      'cellOffsetWithinScroller should be a number',
+    ).to.be.a('number');
 
     // Simulate a layout shift: change the container's translateY,
     // which moves the anchor cell up in the viewport by 200px.
@@ -1842,7 +1832,10 @@ describe('Scroll anchoring', () => {
     ).to.deep.equal([]);
   });
 
-  it('does not anchor before interaction/scrollToCell', async () => {
+  it('does not compensate for external layout shifts above the scroller', async () => {
+    // Anchor positions should be measured relative to the scroll container,
+    // so changing the height of an external element above the scroller should
+    // not trigger scroll anchoring compensation.
     const heights = new Map<number, number>();
     const cellProvider: InfiniteScrollerCellProviderInterface = {
       cellForIndex(i: number): TemplateResult | undefined {
@@ -1886,10 +1879,10 @@ describe('Scroll anchoring', () => {
     ).to.be.lessThan(20);
   });
 
-  it('enables anchoring once the user scrolls', async () => {
-    // Companion to the test above: after a user scroll, in-scroller content
-    // shifts should once again be compensated by anchoring. This guards
-    // against accidentally leaving the anchor disabled forever.
+  it('compensates for internal layout shifts above the viewport', async () => {
+    // Opposite case to the above test: when cells INSIDE the scroller
+    // the scroller grow, the we SHOULD compensate for the shift via
+    // scroll anchoring on the visible cells.
     const heights = new Map<number, number>();
     const cellProvider: InfiniteScrollerCellProviderInterface = {
       cellForIndex(i: number): TemplateResult | undefined {
@@ -1915,7 +1908,6 @@ describe('Scroll anchoring', () => {
     await waitForFrame();
     await el.updateComplete;
 
-    // Simulate a user scroll, which should enable the anchoring.
     window.scrollTo(0, 300);
     await waitForFrame();
 
@@ -1950,7 +1942,7 @@ describe('Scroll anchoring', () => {
     const delta = topAfter - topBefore;
     expect(
       Math.abs(delta),
-      `anchor cell ${anchorIndex} shifted ${delta.toFixed(1)}px after enabling`,
+      `anchor cell ${anchorIndex} shifted ${delta.toFixed(1)}px in viewport`,
     ).to.be.lessThan(20);
   });
 });
