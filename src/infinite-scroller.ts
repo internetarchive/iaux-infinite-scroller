@@ -304,6 +304,7 @@ export class InfiniteScroller
     getCellByIndex: (idx: number) => this.cellContainerForIndex(idx),
     isCellRendered: (cell: Element) => cell.hasAttribute('data-rendered'),
     isActive: () => !this.scrollToCellInProgress,
+    getScrollerTop: () => this.getScrollerTop(),
   });
 
   private sentinelIsIntersecting = false;
@@ -678,11 +679,6 @@ export class InfiniteScroller
     // positions are about to be made meaningless by the jump.
     this.scrollAnchor.invalidate();
 
-    // A scrollToCell call should enable scroll anchoring since it is a
-    // deliberate signal that this scroller's position is now important
-    // on the page.
-    this.scrollAnchor.setEnabled(true);
-
     this.snapBufferToCell(index);
 
     // First we render cells for the buffer range and fill them with content.
@@ -994,6 +990,16 @@ export class InfiniteScroller
   }
 
   /**
+   * Returns the top of the scroller's own content area in the viewport
+   * Used for performing scroll anchoring relative to the scroller itself.
+   */
+  private getScrollerTop(): number {
+    const rectElement = this.scrollSpacer ?? this.container;
+    if (!rectElement) return 0;
+    return rectElement.getBoundingClientRect().top;
+  }
+
+  /**
    * Recompute the two derived scroll-layout values that depend on the
    * current per-row height estimates:
    *  - `totalContentHeight`: the height the scroll spacer needs to be
@@ -1041,10 +1047,6 @@ export class InfiniteScroller
     // We just adjusted scrollTop for scroll anchoring; ignore the
     // resulting event so the recompute doesn't reverse our compensation.
     if (this.scrollAnchor.shouldSuppressNextScrollEvent()) return;
-
-    // Any scroll event we reach here is assumed to have been user-initiated,
-    // so enable scroll anchoring from here on.
-    this.scrollAnchor.setEnabled(true);
 
     if (!this.scrollRafId) {
       this.scrollRafId = requestAnimationFrame(() => {
