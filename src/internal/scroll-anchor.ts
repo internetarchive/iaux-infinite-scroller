@@ -50,10 +50,8 @@ export interface ScrollAnchorHostInterface {
   isActive(): boolean;
 
   /**
-   * Returns the top of the scroller's own content area in the viewport
-   * (e.g., the scroll spacer's bounding-rect top). Anchor positions are
-   * expressed relative to this so that external layout shifts above the
-   * scroller don't contribute to the restore delta.
+   * Returns the top of the scroller's own content area in the viewport, which
+   * will form the basis for the scroll anchoring.
    */
   getScrollerTop(): number;
 }
@@ -169,11 +167,10 @@ export class ScrollAnchor {
   }
 
   /**
-   * After a state mutation that may have shifted cells within the
-   * scroller, adjust `scrollTop` so the previously-captured anchor cell
-   * stays at the same offset within the scroller. Shifts that moved the
-   * entire scroller (rather than cells within it) produce a delta of
-   * zero and result in no scroll adjustment.
+   * After a state mutation that may have shifted the cells, calling this
+   * will adjust the scroll position so the previously-captured anchor cell
+   * stays at the same offset within the scroller. Does not account for
+   * external layout shifts that moved the entire scroll container.
    */
   restore(anchor: ScrollAnchorPoint | null): void {
     if (!anchor) return;
