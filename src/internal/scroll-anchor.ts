@@ -1,19 +1,17 @@
 import { isDocumentScroller } from './scroll-container-utils';
 
 /**
- * A captured anchor cell + the viewport-relative `top` position where it
- * was sitting at capture time. Restoring the anchor adjusts `scrollTop`
- * so that the same cell ends up at the same viewport-relative position.
+ * A captured anchor cell + its `top` position relative to its scroll
+ * container at the time the anchor was captured. Restoring the anchor
+ * adjusts the scroll position so that the cell ends up back at the
+ * same offset within the scroller.
  */
 export type ScrollAnchorPoint = {
   cellIndex: number;
-  viewportOffset: number;
   /**
-   * The scroll container's scrollTop at capture time, so that when we
-   * call restore() we can isolate user-initiated scrolling from the
-   * kinds of content shift we're trying to account for.
+   * `cell.top - scroller.top` in viewport coordinates at capture time.
    */
-  scrollYAtCapture: number;
+  cellOffsetWithinScroller: number;
   /**
    * Snapshot of the scroll anchor validity key when this anchor point was
    * captured. If the key gets invalidated (e.g., by a scrollToCell call),
@@ -50,12 +48,20 @@ export interface ScrollAnchorHostInterface {
    * because virtualization is off or a programmatic scroll is in progress.
    */
   isActive(): boolean;
+
+  /**
+   * Returns the top of the scroller's own content area in the viewport, which
+   * will form the basis for the scroll anchoring.
+   */
+  getScrollerTop(): number;
 }
 
 /**
  * Captures and restores a "scroll anchor": a reference to a cell in the
- * buffer, plus its viewport-relative position. The host can use this to
- * keep the user's view stable across operations that shift cell positions.
+ * buffer, plus its position within the scroller's own coordinate space.
+ * The host can use this to keep the user's view of the cells stable
+ * across operations that shift cell positions within the scroller, while
+ * leaving external content shifts (above/around the scroller) alone.
  *
  * Also owns the "suppress next scroll event" flag, which prevents the
  * recursive case where restoring a scroll anchor triggers scroll listeners
@@ -94,8 +100,9 @@ export class ScrollAnchor {
   }
 
   /**
-   * Find a cell to use as the scroll anchor and record its
-   * viewport-relative top position. Pair every call with `restore`.
+   * Find a cell to use as the scroll anchor and record its top position
+   * within the scroller's own coordinate space. Pair each call with `restore`
+   * to perform the actual anchoring behavior.
    *
    * The capture prioritizes cells in this order:
    *  1. The topmost visible rendered cell that follows a visible placeholder.
@@ -112,8 +119,8 @@ export class ScrollAnchor {
     const viewportBottom = isDoc
       ? window.innerHeight
       : viewportTop + scrollContainer.clientHeight;
+    const scrollerTop = this.host.getScrollerTop();
     const validityKey = this.currentValidityKey;
-    const scrollYAtCapture = isDoc ? window.scrollY : scrollContainer.scrollTop;
 
     let firstVisibleRendered: ScrollAnchorPoint | null = null;
     let visibleFallback: ScrollAnchorPoint | null = null;
@@ -125,8 +132,7 @@ export class ScrollAnchor {
       const rect = cell.getBoundingClientRect();
       const anchor: ScrollAnchorPoint = {
         cellIndex: parseInt(idxStr, 10),
-        viewportOffset: rect.top - viewportTop,
-        scrollYAtCapture,
+        cellOffsetWithinScroller: rect.top - scrollerTop,
         validityKey,
       };
       if (rect.bottom < viewportTop) {
@@ -161,9 +167,10 @@ export class ScrollAnchor {
   }
 
   /**
-   * After a state mutation that may have shifted the visible content,
-   * adjust `scrollTop` so the previously-captured anchor cell stays at
-   * the same viewport-relative position.
+   * After a state mutation that may have shifted the cells, calling this
+   * will adjust the scroll position so the previously-captured anchor cell
+   * stays at the same offset within the scroller. Does not account for
+   * external layout shifts that moved the entire scroll container.
    */
   restore(anchor: ScrollAnchorPoint | null): void {
     if (!anchor) return;
@@ -178,26 +185,17 @@ export class ScrollAnchor {
     const cell = this.host.getCellByIndex(anchor.cellIndex);
     if (!cell) return;
 
-    const scrollContainer = this.host.getScrollContainer();
-    const isDoc = isDocumentScroller(scrollContainer);
-    const viewportTop = isDoc ? 0 : scrollContainer.getBoundingClientRect().top;
+    const scrollerTopNow = this.host.getScrollerTop();
     const newRect = cell.getBoundingClientRect();
-    const scrollYNow = isDoc ? window.scrollY : scrollContainer.scrollTop;
-    // The anchor cell's viewport position may have changed because of
-    // (a) content shifting above it OR (b) the user scrolling.
-    // Here we try to isolate (a) and compensate for it.
-    const userScrollSinceCapture = scrollYNow - anchor.scrollYAtCapture;
-    const delta =
-      newRect.top -
-      viewportTop -
-      anchor.viewportOffset +
-      userScrollSinceCapture;
+    const newCellOffsetWithinScroller = newRect.top - scrollerTopNow;
+    const delta = newCellOffsetWithinScroller - anchor.cellOffsetWithinScroller;
 
     // For very small deltas, we just skip them to avoid scroll jitter.
     if (Math.abs(delta) < 0.5) return;
 
     this.suppressNextScrollEvent = true;
-    if (isDoc) {
+    const scrollContainer = this.host.getScrollContainer();
+    if (isDocumentScroller(scrollContainer)) {
       window.scrollBy(0, delta);
     } else {
       scrollContainer.scrollTop += delta;

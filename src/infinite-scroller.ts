@@ -304,6 +304,7 @@ export class InfiniteScroller
     getCellByIndex: (idx: number) => this.cellContainerForIndex(idx),
     isCellRendered: (cell: Element) => cell.hasAttribute('data-rendered'),
     isActive: () => !this.scrollToCellInProgress,
+    getScrollerTop: () => this.getScrollerTop(),
   });
 
   private sentinelIsIntersecting = false;
@@ -673,6 +674,7 @@ export class InfiniteScroller
       clearTimeout(this.scrollIdleTimer);
       this.scrollIdleTimer = 0;
     }
+
     // Invalidate any pending anchor restores, since any captured viewport
     // positions are about to be made meaningless by the jump.
     this.scrollAnchor.invalidate();
@@ -985,6 +987,16 @@ export class InfiniteScroller
     if (this.scrollContainer) return this.scrollContainer;
     this.scrollContainer = findScrollContainer(this);
     return this.scrollContainer;
+  }
+
+  /**
+   * Returns the top of the scroller's own content area in the viewport
+   * Used for performing scroll anchoring relative to the scroller itself.
+   */
+  private getScrollerTop(): number {
+    const rectElement = this.scrollSpacer ?? this.container;
+    if (!rectElement) return 0;
+    return rectElement.getBoundingClientRect().top;
   }
 
   /**
@@ -1566,7 +1578,16 @@ export class InfiniteScroller
         /**
          * We handle scroll anchoring ourselves for fine-tuning, so opt out
          * of the browser's built-in anchoring (which can interfere with ours
-         * and cause undesirable content jitter).
+         * and cause undesirable content jitter). 
+         */
+        overflow-anchor: none;
+      }
+
+      #scroll-spacer,
+      #container,
+      .cell-container {
+        /**
+         * overflow-anchor does not cascade, so descendents need to opt out too
          */
         overflow-anchor: none;
       }

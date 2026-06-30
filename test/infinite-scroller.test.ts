@@ -1373,9 +1373,10 @@ describe('Scroll anchoring', () => {
     expect(anchor.cellIndex, 'anchor.cellIndex should be a number').to.be.a(
       'number',
     );
-    expect(anchor.viewportOffset, 'viewportOffset should be a number').to.be.a(
-      'number',
-    );
+    expect(
+      anchor.cellOffsetWithinScroller,
+      'cellOffsetWithinScroller should be a number',
+    ).to.be.a('number');
 
     // Simulate a layout shift: change the container's translateY,
     // which moves the anchor cell up in the viewport by 200px.
@@ -1829,5 +1830,119 @@ describe('Scroll anchoring', () => {
       wrongCachedValue,
       `articles with min-height not reflecting cached row height: ${JSON.stringify(wrongCachedValue.slice(0, 3))}`,
     ).to.deep.equal([]);
+  });
+
+  it('does not compensate for external layout shifts above the scroller', async () => {
+    // Anchor positions should be measured relative to the scroll container,
+    // so changing the height of an external element above the scroller should
+    // not trigger scroll anchoring compensation.
+    const heights = new Map<number, number>();
+    const cellProvider: InfiniteScrollerCellProviderInterface = {
+      cellForIndex(i: number): TemplateResult | undefined {
+        const h = heights.get(i);
+        if (h === undefined) return undefined;
+        return html`<div style="height:${h}px">cell-${i}</div>`;
+      },
+    };
+    const wrapper = await fixture<HTMLElement>(html`
+      <div>
+        <div id="header" style="height:50px">short header</div>
+        <infinite-scroller
+          style="--infiniteScrollerCellMinHeight:0"
+          .itemCount=${500}
+          .cellProvider=${cellProvider}
+          .placeholderCellTemplate=${html`<div style="height:30px">
+            loading
+          </div>`}
+        ></infinite-scroller>
+      </div>
+    `);
+    const el = wrapper.querySelector('infinite-scroller') as InfiniteScroller;
+    await el.bufferStabilized;
+
+    expect(window.scrollY, 'page must start at top').to.equal(0);
+
+    // Consumer's data arrives at the same time as the tall header content,
+    // mimicking the production paint cycle.
+    for (let i = 0; i <= 50; i += 1) heights.set(i, 100);
+    for (let i = 0; i <= 50; i += 1) el.refreshCell(i);
+    const header = wrapper.querySelector('#header') as HTMLElement;
+    header.style.height = '450px';
+
+    await el.updateComplete;
+    await waitForFrame();
+    await el.updateComplete;
+
+    expect(
+      window.scrollY,
+      `page should remain at top; got scrollY=${window.scrollY}`,
+    ).to.be.lessThan(20);
+  });
+
+  it('compensates for internal layout shifts above the viewport', async () => {
+    // Opposite case to the above test: when cells INSIDE the scroller
+    // the scroller grow, the we SHOULD compensate for the shift via
+    // scroll anchoring on the visible cells.
+    const heights = new Map<number, number>();
+    const cellProvider: InfiniteScrollerCellProviderInterface = {
+      cellForIndex(i: number): TemplateResult | undefined {
+        const h = heights.get(i);
+        if (h === undefined) return undefined;
+        return html`<div style="height:${h}px">cell-${i}</div>`;
+      },
+    };
+    const el = await fixture<InfiniteScroller>(
+      html`<infinite-scroller
+        style="--infiniteScrollerCellMinHeight:0"
+        .itemCount=${500}
+        .cellProvider=${cellProvider}
+        .placeholderCellTemplate=${html`<div style="height:30px">loading</div>`}
+      ></infinite-scroller>`,
+    );
+    await el.bufferStabilized;
+
+    // Render the visible region so we have non-placeholder cells to anchor on.
+    for (let i = 0; i <= 60; i += 1) heights.set(i, 100);
+    for (let i = 0; i <= 60; i += 1) el.refreshCell(i);
+    await el.updateComplete;
+    await waitForFrame();
+    await el.updateComplete;
+
+    window.scrollTo(0, 300);
+    await waitForFrame();
+
+    // Find a visible rendered cell and record its viewport-relative top.
+    const cells = cellsOf(el);
+    let anchorCell: HTMLElement | null = null;
+    for (const cell of cells) {
+      const r = cell.getBoundingClientRect();
+      const idx = Number(cell.dataset.cellIndex);
+      if (r.bottom > 0 && r.top < window.innerHeight && heights.has(idx)) {
+        anchorCell = cell;
+        break;
+      }
+    }
+    expect(anchorCell, 'visible rendered cell').to.not.be.null;
+    const anchorIndex = Number(anchorCell!.dataset.cellIndex);
+    const topBefore = anchorCell!.getBoundingClientRect().top;
+
+    // Grow cells above the viewport; anchoring should compensate so the
+    // chosen anchor cell stays at the same viewport-relative position.
+    for (let i = 0; i <= 2; i += 1) heights.set(i, 400);
+    for (let i = 0; i <= 2; i += 1) el.refreshCell(i);
+    await el.updateComplete;
+    await waitForFrame();
+    await el.updateComplete;
+
+    const anchorCellAfter = el.shadowRoot?.querySelector(
+      `.cell-container[data-cell-index="${anchorIndex}"]`,
+    ) as HTMLElement | null;
+    expect(anchorCellAfter, 'anchor cell still in buffer').to.not.be.null;
+    const topAfter = anchorCellAfter!.getBoundingClientRect().top;
+    const delta = topAfter - topBefore;
+    expect(
+      Math.abs(delta),
+      `anchor cell ${anchorIndex} shifted ${delta.toFixed(1)}px in viewport`,
+    ).to.be.lessThan(20);
   });
 });
